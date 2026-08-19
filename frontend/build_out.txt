@@ -1,0 +1,10 @@
+
+> ai-testcase-frontend@1.0.0 build
+> vue-tsc -b && vite build
+
+src/views/Statistics.vue(149,25): error TS6133: 'd' is declared but its value is never read.
+npm notice
+npm notice New major version of npm available! 10.9.3 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice

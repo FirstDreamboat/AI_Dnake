@@ -1,0 +1,479 @@
+<template>
+  <div>
+    <el-card shadow="never" class="mb16">
+      <div class="toolbar">
+        <el-button @click="router.back()">
+          <el-icon><Back /></el-icon>返回
+        </el-button>
+        <div class="flex-1"></div>
+        <el-select v-model="filters.priority" placeholder="优先级" clearable class="filter">
+          <el-option v-for="p in ['P0', 'P1', 'P2', 'P3', 'P4']" :key="p" :label="p" :value="p" />
+        </el-select>
+        <el-select v-model="filters.status" placeholder="状态" clearable class="filter">
+          <el-option label="草稿" value="draft" />
+          <el-option label="已评审" value="reviewed" />
+          <el-option label="已通过" value="approved" />
+        </el-select>
+        <el-button type="primary" @click="loadData">查询</el-button>
+        <el-button type="success" :disabled="!selected.length" @click="handleBatchApprove">批量通过</el-button>
+        <el-button type="warning" plain :disabled="!selected.length" @click="handleBatchRegenerate">批量重生成</el-button>
+        <el-button type="danger" plain :disabled="!selected.length" @click="handleBatchDelete">批量删除</el-button>
+        <el-button type="danger" :disabled="!selected.length" @click="openScriptDialog">生成脚本</el-button>
+        <el-dropdown :disabled="!selected.length" @command="handleExport">
+          <el-button type="warning">
+            导出<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="excel">导出 Excel</el-dropdown-item>
+              <el-dropdown-item command="markdown">导出 Markdown</el-dropdown-item>
+              <el-dropdown-item command="json">导出 JSON</el-dropdown-item>
+              <el-dropdown-item command="xmind">导出 XMind</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+    </el-card>
+
+    <el-table :data="list" v-loading="loading" border stripe @selection-change="(rows: any[]) => (selected = rows)">
+      <el-table-column type="selection" width="45" />
+      <el-table-column prop="case_no" label="用例编号" width="120" />
+      <el-table-column prop="title" label="用例标题" min-width="200" show-overflow-tooltip />
+      <el-table-column label="优先级" width="80">
+        <template #default="{ row }">
+          <el-tag :type="priorityType[row.priority]" size="small">{{ row.priority }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="类型" width="100">
+        <template #default="{ row }">{{ row.test_type }}</template>
+      </el-table-column>
+      <el-table-column label="来源" width="90">
+        <template #default="{ row }">
+          <el-tag :type="row.source === 'ai' ? 'warning' : row.source === 'ai_reviewed' ? 'success' : 'info'" size="small">
+            {{ sourceMap[row.source] }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="90">
+        <template #default="{ row }">
+          <el-tag :type="statusType[row.status]" size="small">{{ statusMap[row.status] }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="AI反馈" width="100" align="center">
+        <template #default="{ row }">
+          <el-tooltip content="质量好" placement="top">
+            <el-button
+              link
+              :type="row.feedback === 'good' ? 'success' : 'info'"
+              :disabled="row.source !== 'ai'"
+              @click="handleFeedback(row, 'good')"
+            >👍</el-button>
+          </el-tooltip>
+          <el-tooltip content="质量差" placement="top">
+            <el-button
+              link
+              :type="row.feedback === 'bad' ? 'danger' : 'info'"
+              :disabled="row.source !== 'ai'"
+              @click="handleFeedback(row, 'bad')"
+            >👎</el-button>
+          </el-tooltip>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="190" fixed="right">
+        <template #default="{ row }">
+          <el-button link type="primary" @click="openDetail(row)">详情</el-button>
+          <el-button v-if="row.source === 'ai'" link type="warning" @click="handleRegenerate(row)">重生成</el-button>
+          <el-button v-if="row.status === 'draft'" link type="success" @click="handleReview(row)">通过</el-button>
+          <el-button v-if="row.status !== 'approved'" link type="danger" @click="openReject(row)">驳回</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <el-pagination
+      class="pagination"
+      v-model:current-page="page"
+      :page-size="pageSize"
+      :total="total"
+      layout="total, prev, pager, next"
+      @current-change="loadData"
+    />
+
+    <!-- 用例详情 -->
+    <el-dialog v-model="detailVisible" title="用例详情" width="780px">
+      <template v-if="current">
+        <!-- 查看模式 -->
+        <template v-if="!editing">
+          <div class="detail-title">{{ current.title }}</div>
+          <div class="detail-meta">
+            <el-tag size="small">{{ current.case_no }}</el-tag>
+            <el-tag size="small" :type="priorityType[current.priority]">{{ current.priority }}</el-tag>
+            <el-tag size="small" type="info">{{ current.test_type }}</el-tag>
+            <el-tag size="small" :type="statusType[current.status]">{{ statusMap[current.status] }}</el-tag>
+          </div>
+          <el-descriptions :column="1" border class="mt16">
+            <el-descriptions-item label="前置条件">{{ current.preconditions || '-' }}</el-descriptions-item>
+          </el-descriptions>
+          <div class="step-title">测试步骤</div>
+          <el-table :data="current.steps || []" border size="small">
+            <el-table-column prop="step_no" label="#" width="50" />
+            <el-table-column prop="action" label="操作" />
+            <el-table-column prop="expected" label="预期" />
+          </el-table>
+          <div class="step-title">预期结果</div>
+          <div class="expected-box">{{ current.expected_result }}</div>
+        </template>
+        <!-- 编辑模式 -->
+        <el-form v-else :model="editForm" label-width="90px">
+          <el-form-item label="用例标题" required>
+            <el-input v-model="editForm.title" />
+          </el-form-item>
+          <el-form-item label="优先级">
+            <el-select v-model="editForm.priority" style="width: 140px">
+              <el-option v-for="p in ['P0', 'P1', 'P2', 'P3', 'P4']" :key="p" :label="p" :value="p" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="测试类型">
+            <el-input v-model="editForm.test_type" />
+          </el-form-item>
+          <el-form-item label="前置条件">
+            <el-input v-model="editForm.preconditions" type="textarea" :rows="2" />
+          </el-form-item>
+          <el-form-item label="测试步骤">
+            <el-table :data="editForm.steps" border size="small">
+              <el-table-column label="#" width="50">
+                <template #default="{ $index }">{{ $index + 1 }}</template>
+              </el-table-column>
+              <el-table-column label="操作">
+                <template #default="{ row }">
+                  <el-input v-model="row.action" placeholder="操作步骤" />
+                </template>
+              </el-table-column>
+              <el-table-column label="预期">
+                <template #default="{ row }">
+                  <el-input v-model="row.expected" placeholder="该步骤预期" />
+                </template>
+              </el-table-column>
+              <el-table-column width="60">
+                <template #default="{ $index }">
+                  <el-button link type="danger" @click="editForm.steps.splice($index, 1)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-button class="mt8" size="small" @click="addStep">+ 添加步骤</el-button>
+          </el-form-item>
+          <el-form-item label="预期结果">
+            <el-input v-model="editForm.expected_result" type="textarea" :rows="3" />
+          </el-form-item>
+        </el-form>
+      </template>
+      <template #footer>
+        <template v-if="editing">
+          <el-button @click="cancelEdit">取消</el-button>
+          <el-button type="primary" :loading="saving" @click="saveEdit">保存</el-button>
+        </template>
+        <template v-else>
+          <el-button @click="detailVisible = false">关闭</el-button>
+          <el-button type="warning" :loading="completing" @click="handleAutoComplete">AI 补全</el-button>
+          <el-button type="primary" @click="startEdit">编辑</el-button>
+        </template>
+      </template>
+    </el-dialog>
+
+    <!-- 驳回弹窗 -->
+    <el-dialog v-model="rejectVisible" title="驳回用例" width="440px">
+      <el-input v-model="rejectComment" type="textarea" :rows="3" placeholder="请填写驳回原因（可选）" />
+      <template #footer>
+        <el-button @click="rejectVisible = false">取消</el-button>
+        <el-button type="danger" :loading="rejecting" @click="confirmReject">确认驳回</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 生成脚本 -->
+    <ScriptGenerateDialog ref="scriptDialogRef" :project-id="projectId" :case-ids="selected.map((r: any) => r.id)" :case-count="selected.length" />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
+import { ArrowDown } from '@element-plus/icons-vue'
+import { testCaseApi } from '@/api'
+import ScriptGenerateDialog from '@/components/ScriptGenerateDialog.vue'
+
+const route = useRoute()
+const router = useRouter()
+const projectId = Number(route.params.id)
+
+const list = ref<any[]>([])
+const loading = ref(false)
+const page = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
+const selected = ref<any[]>([])
+const filters = reactive({ priority: '', status: '' })
+
+const detailVisible = ref(false)
+const current = ref<any>(null)
+const editing = ref(false)
+const saving = ref(false)
+const completing = ref(false)
+const scriptDialogRef = ref<InstanceType<typeof ScriptGenerateDialog> | null>(null)
+
+const editForm = reactive({ title: '', priority: 'P2', test_type: '', preconditions: '', expected_result: '', steps: [] as any[] })
+
+const rejectVisible = ref(false)
+const rejecting = ref(false)
+const rejectComment = ref('')
+const rejectTarget = ref<any>(null)
+
+const priorityType: Record<string, string> = { P0: 'danger', P1: 'warning', P2: 'primary', P3: 'info', P4: 'info' }
+const sourceMap: Record<string, string> = { ai: 'AI生成', manual: '人工', ai_reviewed: 'AI审校' }
+const statusMap: Record<string, string> = { draft: '草稿', reviewed: '已评审', approved: '已通过' }
+const statusType: Record<string, string> = { draft: 'info', reviewed: 'success', approved: 'primary' }
+
+const loadData = async () => {
+  loading.value = true
+  try {
+    const data = await testCaseApi.list({
+      project_id: projectId,
+      page: page.value,
+      page_size: pageSize.value,
+      priority: filters.priority || undefined,
+      status: filters.status || undefined,
+    })
+    list.value = data.list
+    total.value = data.total
+  } finally {
+    loading.value = false
+  }
+}
+
+const openDetail = (row: any) => {
+  current.value = row
+  editing.value = false
+  detailVisible.value = true
+}
+
+const handleReview = async (row: any) => {
+  await testCaseApi.review(row.id, 'approve')
+  ElMessage.success('已通过')
+  loadData()
+}
+
+const openReject = (row: any) => {
+  rejectTarget.value = row
+  rejectComment.value = ''
+  rejectVisible.value = true
+}
+
+const confirmReject = async () => {
+  rejecting.value = true
+  try {
+    await testCaseApi.review(rejectTarget.value.id, 'reject', rejectComment.value)
+    ElMessage.success('已驳回')
+    rejectVisible.value = false
+    loadData()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '驳回失败')
+  } finally {
+    rejecting.value = false
+  }
+}
+
+// ===== 编辑 =====
+const startEdit = () => {
+  Object.assign(editForm, {
+    title: current.value.title,
+    priority: current.value.priority || 'P2',
+    test_type: current.value.test_type || '功能测试',
+    preconditions: current.value.preconditions || '',
+    expected_result: current.value.expected_result || '',
+    steps: (current.value.steps || []).map((s: any, i: number) => ({
+      step_no: i + 1,
+      action: s.action || '',
+      expected: s.expected || '',
+    })),
+  })
+  editing.value = true
+}
+
+const cancelEdit = () => {
+  editing.value = false
+}
+
+const addStep = () => {
+  editForm.steps.push({ step_no: editForm.steps.length + 1, action: '', expected: '' })
+}
+
+const saveEdit = async () => {
+  if (!editForm.title.trim()) {
+    ElMessage.warning('请输入用例标题')
+    return
+  }
+  saving.value = true
+  try {
+    const payload = {
+      title: editForm.title,
+      priority: editForm.priority,
+      test_type: editForm.test_type,
+      preconditions: editForm.preconditions,
+      expected_result: editForm.expected_result,
+      steps: editForm.steps.map((s: any, i: number) => ({ step_no: i + 1, action: s.action, expected: s.expected })),
+    }
+    const res = await testCaseApi.update(current.value.id, payload)
+    ElMessage.success('保存成功')
+    current.value = res?.data ?? res
+    editing.value = false
+    loadData()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+// ===== AI 补全 (FR-5.5) =====
+const handleAutoComplete = async () => {
+  completing.value = true
+  try {
+    const res = await testCaseApi.autoComplete(current.value.id)
+    ElMessage.success(res?.message || 'AI 补全完成')
+    const data = res?.data ?? res
+    if (data?.case) {
+      current.value = data.case
+    }
+    loadData()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '补全失败')
+  } finally {
+    completing.value = false
+  }
+}
+
+const handleBatchApprove = async () => {
+  await testCaseApi.batch({ case_ids: selected.value.map((r) => r.id), action: 'approve' })
+  ElMessage.success('批量通过成功')
+  loadData()
+}
+
+// ===== AI 质量反馈 (FR-3.9) =====
+const handleFeedback = async (row: any, feedback: 'good' | 'bad') => {
+  try {
+    const next = row.feedback === feedback ? 'clear' : feedback
+    await testCaseApi.feedback(row.id, next as any)
+    row.feedback = next === 'clear' ? null : next
+    ElMessage.success(next === 'clear' ? '已清除反馈' : '已记录反馈')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '反馈失败')
+  }
+}
+
+// ===== 批量重生成 (FR-3.8) =====
+const handleBatchRegenerate = async () => {
+  const ids = selected.value.filter((r) => r.source === 'ai').map((r) => r.id)
+  if (!ids.length) {
+    ElMessage.warning('请选择 AI 生成的用例')
+    return
+  }
+  await ElMessageBox.confirm(`将重新生成 ${ids.length} 条 AI 用例并覆盖原内容，是否继续？`, '批量重生成', { type: 'warning' })
+  const loading = ElLoading.service({ text: '正在重新生成，请稍候…', fullscreen: true })
+  try {
+    const res: any = await testCaseApi.batchRegenerate(ids)
+    ElMessage.success(res?.message || `已重生成 ${ids.length} 条用例`)
+    loadData()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '重生成失败')
+  } finally {
+    loading.close()
+  }
+}
+
+const handleRegenerate = async (row: any) => {
+  await ElMessageBox.confirm(`确认重新生成用例「${row.case_no}」？将覆盖原内容。`, '重新生成', { type: 'warning' })
+  const res: any = await testCaseApi.batchRegenerate([row.id])
+  ElMessage.success(res?.message || '重生成完成')
+  loadData()
+}
+
+const handleBatchDelete = async () => {
+  await ElMessageBox.confirm(`确认删除选中的 ${selected.value.length} 条用例？删除后不可恢复。`, '批量删除', { type: 'error' })
+  await testCaseApi.batch({ case_ids: selected.value.map((r) => r.id), action: 'delete' })
+  ElMessage.success('批量删除成功')
+  loadData()
+}
+
+const openScriptDialog = () => {
+  scriptDialogRef.value?.open()
+}
+
+const handleExport = async (format: 'excel' | 'markdown' | 'json' | 'xmind' = 'excel') => {
+  const blob = (await testCaseApi.export(selected.value.map((r) => r.id), format)) as any
+  const url = URL.createObjectURL(new Blob([blob]))
+  const a = document.createElement('a')
+  const ext = format === 'excel' ? 'xlsx' : format
+  a.href = url
+  a.download = `test_cases_${projectId}.${ext}`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+onMounted(loadData)
+</script>
+
+<style scoped>
+.mb16 {
+  margin-bottom: 16px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.filter {
+  width: 130px;
+}
+
+.pagination {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.detail-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.detail-meta {
+  display: flex;
+  gap: 8px;
+}
+
+.mt16 {
+  margin-top: 16px;
+}
+
+.mt8 {
+  margin-top: 8px;
+}
+
+.step-title {
+  font-weight: 600;
+  margin: 16px 0 8px;
+}
+
+.expected-box {
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+</style>

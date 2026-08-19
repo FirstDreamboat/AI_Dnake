@@ -1,0 +1,69 @@
+
+> ai-testcase-frontend@1.0.0 build
+> vue-tsc -b && vite build
+
+[36mvite v6.4.3 [32mbuilding for production...[36m[39m
+transforming...
+[33m../../../../../../C:/Users/admin/Desktop/AI/frontend/node_modules/@vueuse/core/dist/index.js (3362:0): A comment
+
+"/* #__PURE__ */"
+
+in "../../../../../../C:/Users/admin/Desktop/AI/frontend/node_modules/@vueuse/core/dist/index.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.[39m
+[33m../../../../../../C:/Users/admin/Desktop/AI/frontend/node_modules/@vueuse/core/dist/index.js (5780:22): A comment
+
+"/* #__PURE__ */"
+
+in "../../../../../../C:/Users/admin/Desktop/AI/frontend/node_modules/@vueuse/core/dist/index.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.[39m
+[32m✓[39m 1721 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                           [39m[1m[2m    0.49 kB[22m[1m[22m[2m │ gzip:   0.35 kB[22m
+[2mdist/[22m[35massets/Documents-Azoo8tCF.css        [39m[1m[2m    0.14 kB[22m[1m[22m[2m │ gzip:   0.11 kB[22m
+[2mdist/[22m[35massets/TestPoints-BlIQ7ysa.css       [39m[1m[2m    0.17 kB[22m[1m[22m[2m │ gzip:   0.14 kB[22m
+[2mdist/[22m[35massets/Projects-DzS3nGar.css         [39m[1m[2m    0.21 kB[22m[1m[22m[2m │ gzip:   0.15 kB[22m
+[2mdist/[22m[35massets/Settings-DuLqbLk1.css         [39m[1m[2m    0.34 kB[22m[1m[22m[2m │ gzip:   0.18 kB[22m
+[2mdist/[22m[35massets/Tasks-BAV3O77p.css            [39m[1m[2m    0.53 kB[22m[1m[22m[2m │ gzip:   0.29 kB[22m
+[2mdist/[22m[35massets/ChangePassword-BayjNETx.css   [39m[1m[2m    0.57 kB[22m[1m[22m[2m │ gzip:   0.31 kB[22m
+[2mdist/[22m[35massets/Dashboard-DbEgwf8J.css        [39m[1m[2m    0.70 kB[22m[1m[22m[2m │ gzip:   0.31 kB[22m
+[2mdist/[22m[35massets/Login-DHLQCfY2.css            [39m[1m[2m    0.76 kB[22m[1m[22m[2m │ gzip:   0.38 kB[22m
+[2mdist/[22m[35massets/Users-D71qa80p.css            [39m[1m[2m    0.82 kB[22m[1m[22m[2m │ gzip:   0.35 kB[22m
+[2mdist/[22m[35massets/Generate-D6VrJCEF.css         [39m[1m[2m    0.83 kB[22m[1m[22m[2m │ gzip:   0.30 kB[22m
+[2mdist/[22m[35massets/Logs-oEyedthr.css             [39m[1m[2m    0.84 kB[22m[1m[22m[2m │ gzip:   0.37 kB[22m
+[2mdist/[22m[35massets/Scripts-CC1Logtb.css          [39m[1m[2m    0.91 kB[22m[1m[22m[2m │ gzip:   0.39 kB[22m
+[2mdist/[22m[35massets/ScriptTemplates-B3OzcLas.css  [39m[1m[2m    0.91 kB[22m[1m[22m[2m │ gzip:   0.39 kB[22m
+[2mdist/[22m[35massets/Knowledge-B2UCynxP.css        [39m[1m[2m    0.97 kB[22m[1m[22m[2m │ gzip:   0.41 kB[22m
+[2mdist/[22m[35massets/TestCases-nXfVCzex.css        [39m[1m[2m    1.53 kB[22m[1m[22m[2m │ gzip:   0.59 kB[22m
+[2mdist/[22m[35massets/Layout-tJ6QY_8l.css           [39m[1m[2m    1.64 kB[22m[1m[22m[2m │ gzip:   0.54 kB[22m
+[2mdist/[22m[35massets/Statistics-CAHy7d4a.css       [39m[1m[2m    3.25 kB[22m[1m[22m[2m │ gzip:   0.94 kB[22m
+[2mdist/[22m[35massets/index-D8Rb4wzD.css            [39m[1m[2m  357.87 kB[22m[1m[22m[2m │ gzip:  47.97 kB[22m
+[2mdist/[22m[36massets/user-lWyY6-k3.js              [39m[1m[2m    1.17 kB[22m[1m[22m[2m │ gzip:   0.53 kB[22m
+[2mdist/[22m[36massets/Login-ScMokyMt.js             [39m[1m[2m    1.79 kB[22m[1m[22m[2m │ gzip:   0.99 kB[22m
+[2mdist/[22m[36massets/Dashboard-DazxMVgm.js         [39m[1m[2m    2.68 kB[22m[1m[22m[2m │ gzip:   1.29 kB[22m
+[2mdist/[22m[36massets/ChangePassword-BNeETs6g.js    [39m[1m[2m    2.73 kB[22m[1m[22m[2m │ gzip:   1.27 kB[22m
+[2mdist/[22m[36massets/Layout-BJttOyox.js            [39m[1m[2m    3.07 kB[22m[1m[22m[2m │ gzip:   1.43 kB[22m
+[2mdist/[22m[36massets/Tasks-mLQL6mWf.js             [39m[1m[2m    4.79 kB[22m[1m[22m[2m │ gzip:   2.15 kB[22m
+[2mdist/[22m[36massets/Documents-uVQaqYVw.js         [39m[1m[2m    5.65 kB[22m[1m[22m[2m │ gzip:   2.49 kB[22m
+[2mdist/[22m[36massets/Settings-C7LENoIl.js          [39m[1m[2m    5.70 kB[22m[1m[22m[2m │ gzip:   2.41 kB[22m
+[2mdist/[22m[36massets/TestPoints-BWYwGdZP.js        [39m[1m[2m    5.72 kB[22m[1m[22m[2m │ gzip:   2.38 kB[22m
+[2mdist/[22m[36massets/Logs-CoMLzfz1.js              [39m[1m[2m    6.65 kB[22m[1m[22m[2m │ gzip:   2.67 kB[22m
+[2mdist/[22m[36massets/Scripts-C_e-rrNR.js           [39m[1m[2m    7.29 kB[22m[1m[22m[2m │ gzip:   2.79 kB[22m
+[2mdist/[22m[36massets/Knowledge-BCNl_b7n.js         [39m[1m[2m    7.35 kB[22m[1m[22m[2m │ gzip:   2.93 kB[22m
+[2mdist/[22m[36massets/Projects-DakA3q-t.js          [39m[1m[2m    7.91 kB[22m[1m[22m[2m │ gzip:   2.88 kB[22m
+[2mdist/[22m[36massets/ScriptTemplates-7Sol6pbK.js   [39m[1m[2m    9.23 kB[22m[1m[22m[2m │ gzip:   3.26 kB[22m
+[2mdist/[22m[36massets/Generate-J1tWmlyT.js          [39m[1m[2m   10.00 kB[22m[1m[22m[2m │ gzip:   3.80 kB[22m
+[2mdist/[22m[36massets/Statistics-9nivYyya.js        [39m[1m[2m   10.64 kB[22m[1m[22m[2m │ gzip:   3.93 kB[22m
+[2mdist/[22m[36massets/Users-B2kJTC9i.js             [39m[1m[2m   12.11 kB[22m[1m[22m[2m │ gzip:   4.37 kB[22m
+[2mdist/[22m[36massets/TestCases-Dma1xERy.js         [39m[1m[2m   19.23 kB[22m[1m[22m[2m │ gzip:   6.43 kB[22m
+[2mdist/[22m[36massets/index-BufhDs6X.js             [39m[1m[2m   53.44 kB[22m[1m[22m[2m │ gzip:  20.12 kB[22m
+[2mdist/[22m[36massets/index-DVMdhjMO.js             [39m[1m[33m1,199.02 kB[39m[22m[2m │ gzip: 386.83 kB[22m
+[33m
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[32m✓ built in 14.50s[39m
+npm notice
+npm notice New major version of npm available! 10.9.3 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice

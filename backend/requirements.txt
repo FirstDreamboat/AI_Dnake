@@ -1,0 +1,40 @@
+# 狄耐克AI驱动嵌入式测试用例自动生成平台 - 后端依赖
+# 运行环境: Python 3.10+ (已验证兼容 3.13)
+
+# Web框架
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# 数据校验与配置
+pydantic==2.10.4
+pydantic-settings==2.7.1
+email-validator==2.2.0
+python-dotenv==1.0.1
+
+# ORM与数据库
+sqlalchemy==2.0.36
+pymysql==1.1.1
+
+# 认证
+python-jose[cryptography]==3.3.0
+bcrypt==4.2.1
+
+# LLM调用与RAG检索 (httpx直连Ollama API + numpy余弦相似度)
+httpx==0.28.1
+numpy==2.2.1
+
+# 文档解析
+pypdf==5.1.0
+python-docx==1.1.2
+
+# 数据导出
+pandas==2.3.3
+openpyxl==3.1.5
+
+# 图片验证码
+Pillow==11.1.0
+
+# 说明:
+# - chromadb/langchain/ollama 等包当前代码未直接使用，已移除，避免 Python 3.13 兼容问题
+# - langgraph 为可选依赖，仅 langgraph_workflow.py(参考实现) 需要，使用时单独 pip install langgraph

@@ -1,0 +1,9 @@
+**/node_modules
+**/__pycache__
+**/.venv
+**/venv
+**/*.db
+**/dist
+.codebuddy
+*.log
+.git
