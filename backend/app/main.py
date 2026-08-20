@@ -2,10 +2,12 @@
 import logging
 import re
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api import api_router
 from app.config import settings
@@ -139,9 +141,41 @@ async def business_error_handler(request: Request, exc: BusinessError):
 
 @app.get("/")
 def root():
+    # 已构建前端产物时，根路径直接返回前端页面（单端口部署）
+    index = _DIST_DIR / "index.html"
+    if index.exists():
+        return FileResponse(index)
     return {
         "name": settings.APP_NAME,
         "version": "1.0.0",
         "docs": "/docs",
         "health": "/api/v1/system/health",
     }
+
+
+# ===== 前端静态资源托管（单端口部署：页面与 API 同源）=====
+_DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+
+def _mount_frontend(app: FastAPI) -> None:
+    """若存在 frontend/dist 构建产物，则挂载静态资源并提供 history 路由回退"""
+    if not (_DIST_DIR / "index.html").exists():
+        return
+    app.mount(
+        "/assets",
+        StaticFiles(directory=_DIST_DIR / "assets"),
+        name="frontend-assets",
+    )
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        # API 路径未被匹配时应返回 404，而非回退到前端页面
+        if full_path.startswith("api/") or full_path.startswith("docs"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        target = _DIST_DIR / full_path
+        if full_path and target.is_file():
+            return FileResponse(target)
+        return FileResponse(_DIST_DIR / "index.html")
+
+
+_mount_frontend(app)

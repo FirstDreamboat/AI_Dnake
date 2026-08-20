@@ -146,7 +146,7 @@
               >{{ d.label }}</text>
               <!-- 每列热区：鼠标触碰/触屏点击该列数据点时显示 tooltip -->
               <rect
-                v-for="(d, i) in trendDates"
+                v-for="(_, i) in trendDates"
                 :key="'hot' + i"
                 class="hot-zone"
                 :x="xAt(i) - colW / 2"

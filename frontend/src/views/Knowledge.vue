@@ -206,7 +206,6 @@ const mode = ref('hybrid')
 const uploadType = ref('test_case')
 const selectedType = ref('')
 // 产品线（业务域）过滤：intercom 楼宇对讲 / smart_home 智能家居 / hospital 智慧病房；空=通用/全部
-const searchLine = ref('')
 const selectedLine = ref('')
 const uploadLine = ref('')
 const chatLine = ref('')
