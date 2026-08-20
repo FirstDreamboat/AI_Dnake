@@ -8,7 +8,7 @@ class ScriptGenerateRequest(BaseModel):
     """脚本生成请求：选择用例 + 脚本类型"""
 
     case_ids: list[int] = Field(..., min_length=1)
-    script_type: str = Field("pytest", pattern="^(pytest|api|ui|custom)$")
+    script_type: str = Field("pytest", pattern="^(pytest|api|ui|android|ios|custom)$")
     # 自定义脚本类型的补充要求
     custom_prompt: str | None = Field(None, max_length=1000)
     # FR-6.4 可选：引用自定义模板
@@ -19,7 +19,7 @@ class ScriptCreate(BaseModel):
     project_id: int
     case_id: int | None = None
     name: str = Field(..., min_length=1, max_length=200)
-    script_type: str = Field("pytest", pattern="^(pytest|api|ui|custom)$")
+    script_type: str = Field("pytest", pattern="^(pytest|api|ui|android|ios|custom)$")
     language: str = Field("python", max_length=20)
     framework: str | None = Field(None, max_length=50)
     content: str = Field(..., min_length=1)

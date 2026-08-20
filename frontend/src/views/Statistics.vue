@@ -370,7 +370,8 @@ const loadOverview = async () => {
     const ps = await statsApi.project(p.project_id)
     cards.value[5].value = ps?.script_count ?? 0
   } else {
-    cards.value[5].value = 0
+    // 全局模式使用总览接口的真实脚本统计
+    cards.value[5].value = o.script_count ?? 0
   }
 }
 

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 class ScriptTemplateCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    script_type: str = Field("custom", pattern="^(pytest|api|ui|custom)$")
+    script_type: str = Field("custom", pattern="^(pytest|api|ui|android|ios|custom)$")
     language: str = Field("python", max_length=20)
     framework: str | None = Field(None, max_length=50)
     template_content: str = Field(..., min_length=1)
@@ -16,7 +16,7 @@ class ScriptTemplateCreate(BaseModel):
 
 class ScriptTemplateUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=100)
-    script_type: str | None = Field(None, pattern="^(pytest|api|ui|custom)$")
+    script_type: str | None = Field(None, pattern="^(pytest|api|ui|android|ios|custom)$")
     language: str | None = Field(None, max_length=20)
     framework: str | None = Field(None, max_length=50)
     template_content: str | None = None

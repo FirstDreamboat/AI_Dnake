@@ -57,6 +57,8 @@ def overview(
     user: User = Depends(get_current_user),
 ):
     """平台总览统计"""
+    from app.models.test_script import TestScript
+
     return ok(
         {
             "user_count": db.scalar(select(func.count(User.id))) or 0,
@@ -64,6 +66,7 @@ def overview(
             "case_count": db.scalar(select(func.count(TestCase.id))) or 0,
             "task_count": db.scalar(select(func.count(GenerationTask.id))) or 0,
             "doc_count": db.scalar(select(func.count(Document.id))) or 0,
+            "script_count": db.scalar(select(func.count(TestScript.id))) or 0,
         }
     )
 

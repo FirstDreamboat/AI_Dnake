@@ -5,10 +5,12 @@
         <div class="card-header">
           <div class="header-left">
             <span>脚本模板管理（FR-6.4 自定义模板）</span>
-            <el-select v-model="filterType" placeholder="全部类型" clearable style="width: 140px" @change="loadData">
+            <el-select v-model="filterType" placeholder="全部类型" clearable style="width: 150px" @change="loadData">
               <el-option label="pytest" value="pytest" />
               <el-option label="接口自动化" value="api" />
               <el-option label="UI 自动化" value="ui" />
+              <el-option label="安卓APP自动化" value="android" />
+              <el-option label="iOS APP自动化" value="ios" />
               <el-option label="自定义" value="custom" />
             </el-select>
             <el-input
@@ -114,6 +116,8 @@
                 <el-option label="pytest" value="pytest" />
                 <el-option label="接口自动化" value="api" />
                 <el-option label="UI 自动化" value="ui" />
+                <el-option label="安卓APP自动化" value="android" />
+                <el-option label="iOS APP自动化" value="ios" />
                 <el-option label="自定义" value="custom" />
               </el-select>
             </el-form-item>
@@ -193,6 +197,8 @@ const typeMap: Record<string, { label: string; tag: string }> = {
   pytest: { label: 'pytest', tag: 'primary' },
   api: { label: '接口自动化', tag: 'success' },
   ui: { label: 'UI 自动化', tag: 'warning' },
+  android: { label: '安卓APP自动化', tag: 'danger' },
+  ios: { label: 'iOS APP自动化', tag: 'danger' },
   custom: { label: '自定义', tag: 'info' },
 }
 const typeLabel = (t: string) => typeMap[t]?.label || t || '-'

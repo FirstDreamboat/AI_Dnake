@@ -1,10 +1,12 @@
 """测试脚本生成智能体: 将测试用例转换为可执行的自动化测试脚本
 
-支持四种脚本类型:
-- pytest: 单元测试脚本（mock 硬件交互）
-- api:    接口自动化脚本（requests + pytest）
-- ui:     UI 自动化脚本（playwright + pytest）
-- custom: 自定义脚本（用户补充要求）
+支持六种脚本类型:
+- pytest:  单元测试脚本（mock 硬件交互）
+- api:     接口自动化脚本（requests + pytest）
+- ui:      UI 自动化脚本（playwright + pytest）
+- android: 安卓 APP 自动化脚本（Appium + uiautomator2）
+- ios:     iOS APP 自动化脚本（Appium + XCUITest）
+- custom:  自定义脚本（用户补充要求）
 
 生成采用文本模式（非 json mode），要求模型只输出代码。
 """
@@ -36,6 +38,30 @@ SCRIPT_TYPE_META = {
             "使用 pytest + playwright 实现 UI 自动化；"
             "将用例步骤映射为页面操作（点击、输入、导航、断言元素可见/文本）；"
             "使用 page fixture，启动时设置 headless 与超时。"
+        ),
+    },
+    "android": {
+        "label": "安卓APP自动化脚本",
+        "framework": "pytest + Appium (uiautomator2)",
+        "is_mobile": True,
+        "requirement": (
+            "使用 pytest + Appium Python 客户端（appium-python-client）实现安卓 APP UI 自动化，底层由 uiautomator2 驱动；"
+            "通过 adb 连接真机或模拟器，测试前检查设备连接状态；"
+            "将用例步骤映射为控件查找（优先 resource-id，其次 text / content-desc）、点击、输入、滑动、返回等操作与元素断言；"
+            "使用 fixture 统一初始化 Appium driver 与 desired capabilities（platformName=Android、platformVersion、deviceName/udid、appPackage、appActivity、noReset 等），并在 teardown 中退出 driver；"
+            "被测包名与启动 Activity 未知时在代码中以常量占位并注释说明需要替换。"
+        ),
+    },
+    "ios": {
+        "label": "iOS APP自动化脚本",
+        "framework": "pytest + Appium (XCUITest)",
+        "is_mobile": True,
+        "requirement": (
+            "使用 pytest + Appium Python 客户端（appium-python-client）实现 iOS APP UI 自动化，automationName 使用 XCUITest；"
+            "连接真机或模拟器（XCUITest 驱动），测试前检查设备连接状态；"
+            "将用例步骤映射为控件查找（优先 accessibility id，其次 label / name）、点击、输入、滑动、返回等操作与元素断言；"
+            "使用 fixture 统一初始化 Appium driver 与 desired capabilities（platformName=iOS、platformVersion、deviceName/udid、bundleId、automationName=XCUITest、noReset 等），并在 teardown 中退出 driver；"
+            "被测 bundleId 未知时在代码中以常量占位并注释说明需要替换。"
         ),
     },
     "custom": {
@@ -70,7 +96,7 @@ SCRIPT_GENERATE_PROMPT = """你是一名资深嵌入式测试开发工程师，�
 3. 每个测试用例对应一个独立的 test_ 函数，函数名体现用例要点
 4. 用例的前置条件映射为 fixture 或函数内初始化，测试步骤映射为操作代码，预期结果映射为断言
 5. 添加必要的注释说明每个测试步骤对应用例中的哪一步
-6. 对依赖真实硬件/外部服务的部分使用 mock 或注入方式处理，保证脚本可独立运行
+6. {hardware_note}
 """
 
 
@@ -92,12 +118,23 @@ class ScriptGeneratorAgent(BaseAgent):
         script_type = script_type if script_type in SCRIPT_TYPE_META else "pytest"
         meta = SCRIPT_TYPE_META[script_type]
 
+        # 移动端（android/ios）脚本必须连接真实设备/模拟器，硬件说明与 mock 类类型不同
+        if meta.get("is_mobile"):
+            hardware_note = (
+                "脚本面向真实设备/模拟器执行：使用 fixture 检查设备连接状态（如 adb devices / Appium 连接），"
+                "设备未就绪时给出清晰提示；在脚本头部注释明确环境依赖（adb、Appium 版本、"
+                "desired capabilities 中的包名/Activity 或 bundleId 等），不得用 mock 替代真实驱动"
+            )
+        else:
+            hardware_note = "对依赖真实硬件/外部服务的部分使用 mock 或注入方式处理，保证脚本可独立运行"
+
         cases_text = self._format_cases(cases)
         custom = f"- {custom_prompt}" if custom_prompt else "- 无"
         prompt = (
             SCRIPT_GENERATE_PROMPT.replace("{label}", meta["label"])
             .replace("{framework}", meta["framework"])
             .replace("{requirement}", meta["requirement"])
+            .replace("{hardware_note}", hardware_note)
             .replace("{custom_prompt}", custom)
             .replace("{cases}", cases_text)
         )

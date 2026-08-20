@@ -10,6 +10,8 @@
             <el-radio-button value="pytest">单元测试(pytest)</el-radio-button>
             <el-radio-button value="api">接口自动化</el-radio-button>
             <el-radio-button value="ui">UI自动化(playwright)</el-radio-button>
+            <el-radio-button value="android">安卓APP自动化</el-radio-button>
+            <el-radio-button value="ios">iOS APP自动化</el-radio-button>
             <el-radio-button value="custom">自定义</el-radio-button>
           </el-radio-group>
         </el-form-item>
@@ -108,12 +110,16 @@ const typeTipMap: Record<string, string> = {
   pytest: '使用 pytest + pytest-mock，针对嵌入式场景模拟硬件交互，每个用例对应一个 test_ 函数',
   api: '使用 pytest + requests，将用例步骤映射为 HTTP 请求与响应断言',
   ui: '使用 pytest + playwright，将用例步骤映射为页面操作与元素断言',
+  android: '使用 pytest + Appium(uiautomator2)，经 adb 连接安卓设备/模拟器，按 resource-id/text 定位控件执行操作与断言',
+  ios: '使用 pytest + Appium(XCUITest)，连接 iOS 真机/模拟器，按 accessibility id/label 定位控件执行操作与断言',
   custom: '按自定义要求生成脚本，若未填写要求则默认按单元测试生成',
 }
 const typeLabelMap: Record<string, string> = {
   pytest: '单元测试脚本',
   api: '接口自动化脚本',
   ui: 'UI 自动化脚本',
+  android: '安卓APP自动化脚本',
+  ios: 'iOS APP自动化脚本',
   custom: '自定义脚本',
 }
 
