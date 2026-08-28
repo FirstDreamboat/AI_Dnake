@@ -1,12 +1,14 @@
 """测试点接口"""
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.core.exceptions import NotFoundError
 from app.database import get_db
+from app.models.test_case import TestCase, TestCaseVersion
 from app.models.test_point import TestPoint
+from app.models.test_script import TestScript
 from app.models.user import User
 from app.schemas.common import PageData, ok
 from app.schemas.test_point import TestPointCreate, TestPointOut, TestPointUpdate
@@ -89,6 +91,11 @@ def delete_test_point(
     point = db.get(TestPoint, point_id)
     if not point:
         raise NotFoundError("测试点不存在")
+    # 测试点被用例引用（test_case.test_point_id 外键）：先删用例版本/脚本 → 用例 → 测试点
+    case_ids = select(TestCase.id).where(TestCase.test_point_id == point_id)
+    db.execute(delete(TestCaseVersion).where(TestCaseVersion.case_id.in_(case_ids)))
+    db.execute(delete(TestScript).where(TestScript.case_id.in_(case_ids)))
+    db.execute(delete(TestCase).where(TestCase.test_point_id == point_id))
     db.delete(point)
     db.commit()
     return ok(message="测试点删除成功")

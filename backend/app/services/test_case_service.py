@@ -19,13 +19,25 @@ PRODUCT_LINE_CODES = {
 
 
 def _gen_case_no(db: Session, project_id: int) -> str:
-    """生成用例编号: {产品线代码}-{模块代码}-{序号}（PRD §7.1）"""
+    """生成用例编号: {产品线代码}-{模块代码}-{序号}（PRD §7.1）
+
+    序号取"项目内已有最大序号 + 1"而非"用例总数 + 1"，
+    避免删除用例后编号回退/重复导致不连续。
+    """
     project = db.get(Project, project_id)
     line_code = PRODUCT_LINE_CODES.get(project.product_line if project else None, "GEN")
     # 模块代码：当前未建模模块实体，默认 MOD；后续引入模块管理后可细化
     module_code = "MOD"
-    count = len(db.scalars(select(TestCase).where(TestCase.project_id == project_id)).all()) + 1
-    return f"{line_code}-{module_code}-{count:03d}"
+    prefix = f"{line_code}-{module_code}-"
+    rows = db.scalars(select(TestCase.case_no).where(TestCase.project_id == project_id)).all()
+    max_seq = 0
+    for no in rows:
+        if no.startswith(prefix):
+            try:
+                max_seq = max(max_seq, int(no.rsplit("-", 1)[1]))
+            except ValueError:
+                continue
+    return f"{prefix}{max_seq + 1:03d}"
 
 
 def list_cases(

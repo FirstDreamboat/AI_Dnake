@@ -3,7 +3,7 @@ import re
 import time
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -11,6 +11,10 @@ from app.core.deps import get_current_user
 from app.core.exceptions import NotFoundError
 from app.database import get_db
 from app.models.document import Document
+from app.models.generation_task import GenerationTask
+from app.models.test_case import TestCase, TestCaseVersion
+from app.models.test_point import TestPoint
+from app.models.test_script import TestScript
 from app.models.user import User
 from app.schemas.common import PageData, ok
 from app.schemas.document import DocumentOut, URLParseRequest
@@ -75,7 +79,7 @@ def parse_url_document(
 def list_documents(
     project_id: int | None = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=100),
+    page_size: int = Query(10, ge=1, le=200),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -119,6 +123,15 @@ def delete_document(
     doc = db.get(Document, document_id)
     if not doc:
         raise NotFoundError("文档不存在")
+    # 文档被生成任务引用（generation_task.document_id 外键）：断开关联，保留任务历史
+    db.execute(update(GenerationTask).where(GenerationTask.document_id == document_id).values(document_id=None))
+    # 文档下测试点及其用例：先删用例版本/脚本 → 用例 → 测试点，避免外键约束失败
+    point_ids = select(TestPoint.id).where(TestPoint.document_id == document_id)
+    case_ids = select(TestCase.id).where(TestCase.test_point_id.in_(point_ids))
+    db.execute(delete(TestCaseVersion).where(TestCaseVersion.case_id.in_(case_ids)))
+    db.execute(delete(TestScript).where(TestScript.case_id.in_(case_ids)))
+    db.execute(delete(TestCase).where(TestCase.test_point_id.in_(point_ids)))
+    db.execute(delete(TestPoint).where(TestPoint.document_id == document_id))
     db.delete(doc)
     db.commit()
     return ok(message="文档删除成功")

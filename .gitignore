@@ -29,6 +29,13 @@ backend/data/
 *.db
 *.sqlite3
 
+# ===== 数据库备份 =====
+backup_*.sql
+
+# ===== 临时调试文件 =====
+tmp_*.py
+tmp_*.txt
+
 # ===== IDE / 系统 =====
 .idea/
 .vscode/

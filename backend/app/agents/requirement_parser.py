@@ -31,8 +31,8 @@ REQUIREMENT_PARSE_PROMPT = """你是一名资深的嵌入式软件测试需求�
 
 # 单块最大字符数（控制单次 prompt 长度，兼顾 CPU 推理速度）
 CHUNK_SIZE = 2500
-# 最多解析的块数（超大文档限流，防止任务无限拉长）
-MAX_CHUNKS = 8
+# 最多解析的块数（支持到约 10 万字符的大型 PRD；仍保留上限防止任务无限拉长）
+MAX_CHUNKS = 40
 # 单块输出低于该数量时，提高随机度重试一次兜底
 MIN_EXPECTED_PER_CHUNK = 3
 # 兜底重试的 temperature
@@ -47,12 +47,52 @@ _CATEGORY_MAP = {
 }
 
 
+# 需求编号模式：FR-1.1 / PRD2.1 / 1.1 / 1、/ 1) / 第1条 等（避免误匹配纯数字、日期）
+_REQ_NO_RE = re.compile(
+    r"^(?:"
+    r"FR[-_.]?\d+(?:[-_.]\d+)*"
+    r"|PRD[-_.]?\d+(?:[-_.]\d+)*"
+    r"|\d+(?:\.\d+){1,3}"
+    r"|\d+[、.)．]"
+    r"|第[0-9一二三四五六七八九十百千]+[条章节]"
+    r")\s*",
+    re.IGNORECASE,
+)
+
+
 def _chunk_text(content: str, size: int = CHUNK_SIZE, max_chunks: int = MAX_CHUNKS) -> list[str]:
-    """将长文本按字符切分为若干块"""
+    """将长文本按需求编号对齐切分为若干块，优先保证单条需求完整；
+    无编号时回退字符滑窗切分。"""
     content = content.strip()
     if not content:
         return []
-    chunks = [content[i : i + size] for i in range(0, len(content), size)]
+    lines = content.splitlines()
+    boundary = {i for i, ln in enumerate(lines) if _REQ_NO_RE.match(ln.strip())}
+    if not boundary:
+        chunks = [content[i : i + size] for i in range(0, len(content), size)]
+        return chunks[:max_chunks]
+    chunks: list[str] = []
+    buf: list[str] = []
+    buf_len = 0
+    for i, ln in enumerate(lines):
+        # 遇到新需求编号：若当前块已有内容则结算
+        if i in boundary and buf:
+            chunks.append("\n".join(buf))
+            buf, buf_len = [], 0
+        # 超长行单独成块（避免死循环累积）
+        if len(ln) > size:
+            if buf:
+                chunks.append("\n".join(buf))
+                buf, buf_len = [], 0
+            chunks.append(ln)
+            continue
+        if buf_len + len(ln) + 1 > size:
+            chunks.append("\n".join(buf))
+            buf, buf_len = [], 0
+        buf.append(ln)
+        buf_len += len(ln) + 1
+    if buf:
+        chunks.append("\n".join(buf))
     return chunks[:max_chunks]
 
 

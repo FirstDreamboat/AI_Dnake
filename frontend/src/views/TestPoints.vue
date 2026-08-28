@@ -3,7 +3,12 @@
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
-          <span>测试点管理</span>
+          <div class="header-left">
+            <el-button size="small" @click="goBack">
+              <el-icon><Back /></el-icon>返回
+            </el-button>
+            <span class="page-title">测试点管理</span>
+          </div>
           <div>
             <el-button type="primary" size="small" @click="openCreate">新增测试点</el-button>
           </div>
@@ -77,12 +82,25 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { documentApi, testPointApi } from '@/api'
 
 const route = useRoute()
+const router = useRouter()
 const projectId = Number(route.params.id)
+
+// 返回上一级；测试点管理的唯一入口是需求文档页（/projects/:id/documents）。
+// 若上一页是本站其他有效页面则返回，否则（直链打开/刷新/历史循环）直接回到需求文档页
+const goBack = () => {
+  const back = window.history.state?.back || ''
+  const isValidPrev = back && !back.includes('/test-points') && back !== window.location.pathname
+  if (isValidPrev) {
+    router.back()
+  } else {
+    router.push(`/projects/${projectId}/documents`)
+  }
+}
 
 const typeMap: Record<string, string> = {
   function: '功能测试',
@@ -195,6 +213,15 @@ onMounted(loadData)
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.page-title {
+  font-size: 15px;
+  font-weight: 600;
 }
 .mb16 {
   margin-bottom: 16px;

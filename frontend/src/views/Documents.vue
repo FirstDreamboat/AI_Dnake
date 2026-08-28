@@ -24,7 +24,7 @@
         <el-upload
           :show-file-list="false"
           :before-upload="handleImageUpload"
-          accept=".png,.jpg,.jpeg,.gif,.webp,.bmp"
+          accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.rp"
         >
           <el-button type="warning">
             <el-icon><Picture /></el-icon>上传原型图
@@ -59,8 +59,8 @@
       <el-table-column prop="title" label="文档标题" min-width="220" />
       <el-table-column prop="file_type" label="格式" width="110">
         <template #default="{ row }">
-          <el-tag size="small" :type="isImageType(row.file_type) ? 'warning' : ''">
-            {{ isImageType(row.file_type) ? '原型图' : row.file_type.toUpperCase() }}
+          <el-tag size="small" :type="isPrototypeType(row.file_type) ? 'warning' : ''">
+            {{ isPrototypeType(row.file_type) ? '原型图' : row.file_type.toUpperCase() }}
           </el-tag>
         </template>
       </el-table-column>
@@ -83,7 +83,7 @@
       <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="handleParse(row)">解析</el-button>
-          <el-button v-if="!isImageType(row.file_type)" link type="success" @click="goGenerate(row)">生成用例</el-button>
+          <el-button v-if="!isPrototypeType(row.file_type)" link type="success" @click="goGenerate(row)">生成用例</el-button>
           <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -126,6 +126,9 @@ const loadData = async () => {
 
 const imageTypes = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']
 const isImageType = (ft: string) => imageTypes.includes((ft || '').toLowerCase())
+// 原型图类型：图片 + Axure .rp 工程文件（可上传存储，但无法直接文本解析生成用例）
+const prototypeTypes = ['rp', ...imageTypes]
+const isPrototypeType = (ft: string) => prototypeTypes.includes((ft || '').toLowerCase())
 
 const handleUpload = async (file: File) => {
   await documentApi.upload(projectId, file)

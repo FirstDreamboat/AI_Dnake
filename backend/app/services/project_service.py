@@ -1,12 +1,14 @@
 """项目管理服务"""
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
 from app.models.document import Document
 from app.models.generation_task import GenerationTask
 from app.models.project import Project
-from app.models.test_case import TestCase
+from app.models.test_case import TestCase, TestCaseVersion
+from app.models.test_point import TestPoint
+from app.models.test_script import TestScript
 from app.schemas.project import ProjectCreate, ProjectStats, ProjectUpdate
 
 
@@ -53,7 +55,34 @@ def update_project(db: Session, project_id: int, req: ProjectUpdate) -> Project:
 
 
 def delete_project(db: Session, project_id: int) -> None:
+    """删除项目及其全部关联数据。
+
+    项目关联文档/测试点/用例(含版本)/脚本/生成任务。SQLite 外键约束默认关闭、
+    MySQL 默认开启，均不依赖数据库级联，必须按子表→主表顺序显式清理，
+    否则删除会因外键约束/悬空引用失败。
+
+    除按 project_id 外，同时按 document_id / test_point_id / case_id 维度清理，
+    覆盖历史脏数据（如生成任务/测试点/用例的归属字段与文档项目不一致）导致的外键残留。
+    """
     project = get_project(db, project_id)
+    doc_ids = select(Document.id).where(Document.project_id == project_id)
+    point_ids = select(TestPoint.id).where(TestPoint.project_id == project_id)
+    case_ids = select(TestCase.id).where(
+        or_(TestCase.project_id == project_id, TestCase.test_point_id.in_(point_ids))
+    )
+    # 1. 用例版本（引用用例）
+    db.execute(delete(TestCaseVersion).where(TestCaseVersion.case_id.in_(case_ids)))
+    # 2. 脚本（引用项目/用例）
+    db.execute(delete(TestScript).where(or_(TestScript.project_id == project_id, TestScript.case_id.in_(case_ids))))
+    # 3. 用例（引用项目/测试点）
+    db.execute(delete(TestCase).where(or_(TestCase.project_id == project_id, TestCase.test_point_id.in_(point_ids))))
+    # 4. 测试点（引用项目/文档）
+    db.execute(delete(TestPoint).where(or_(TestPoint.project_id == project_id, TestPoint.document_id.in_(doc_ids))))
+    # 5. 生成任务（引用项目/文档）
+    db.execute(delete(GenerationTask).where(or_(GenerationTask.project_id == project_id, GenerationTask.document_id.in_(doc_ids))))
+    # 6. 文档（引用项目）
+    db.execute(delete(Document).where(Document.project_id == project_id))
+    # 7. 项目
     db.delete(project)
     db.commit()
 
@@ -62,12 +91,8 @@ def get_project_stats(db: Session, project_id: int) -> ProjectStats:
     doc_count = db.scalar(select(func.count(Document.id)).where(Document.project_id == project_id)) or 0
     case_count = db.scalar(select(func.count(TestCase.id)).where(TestCase.project_id == project_id)) or 0
     task_count = db.scalar(select(func.count(GenerationTask.id)).where(GenerationTask.project_id == project_id)) or 0
-    from app.models.test_script import TestScript
-
     script_count = db.scalar(select(func.count(TestScript.id)).where(TestScript.project_id == project_id)) or 0
     # 覆盖率：已关联测试点的测试点覆盖情况（简化：用例数/测试点数）
-    from app.models.test_point import TestPoint
-
     point_count = db.scalar(select(func.count(TestPoint.id)).where(TestPoint.project_id == project_id)) or 0
     # 覆盖率：已有关联用例的测试点数 / 总测试点数（与任务覆盖率口径一致，封顶 100）
     covered_point_count = db.scalar(

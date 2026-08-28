@@ -14,12 +14,13 @@ from app.models.knowledge import KnowledgeDoc
 from app.services.rag_service import rag_service
 from sqlalchemy.orm import Session
 
-# 支持的文件格式（文本文档 + Excel/CSV + 原型图/设计稿图片）
+# 支持的文件格式（文本文档 + Excel/CSV + 原型图/设计稿图片 + Axure 原型 .rp）
 # 注: .xls 旧格式需额外安装 xlrd，当前环境未安装故不支持
 SUPPORTED_EXTENSIONS = {
     ".pdf", ".docx", ".doc", ".txt", ".md",
     ".xlsx", ".csv",
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+    ".rp",
 }
 
 
@@ -67,6 +68,19 @@ def parse_document_file(file_path: str, file_type: str) -> str:
             f"说明: 当前未启用视觉模型（VISION_ENABLED=false）或云端 Key 未配置，暂无法自动提取图片中的需求信息。{hint}，"
             "然后重新上传/解析。"
         )
+    if file_type == "rp":
+        from app.services.rp_parser import extract_rp_text
+
+        try:
+            return extract_rp_text(str(path))
+        except ValueError as e:
+            # 非 Axure 8 二进制或解析不出内容时给出友好提示
+            return (
+                f"[Axure 原型文件] 文件: {path.name}\n"
+                f"解析失败: {e}\n"
+                "提示: .rp 为 Axure 原型工程文件，建议在 Axure 中导出为图片（或 HTML 截图）后上传，"
+                "系统将调用视觉模型识别原型内容。"
+            )
     if file_type == "txt":
         return path.read_text(encoding="utf-8", errors="ignore")
     if file_type == "md":
@@ -78,9 +92,32 @@ def parse_document_file(file_path: str, file_type: str) -> str:
         return "\n".join(page.extract_text() or "" for page in reader.pages)
     if file_type in ("docx", "doc"):
         from docx import Document as DocxDocument
+        from docx.oxml.ns import qn
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
 
         doc = DocxDocument(str(path))
-        return "\n".join(p.text for p in doc.paragraphs)
+        parts: list[str] = []
+        # 按文档 body 顺序遍历段落与表格，保持内容先后关系（表格行转 "列: 值" 文本）
+        for child in doc.element.body.iterchildren():
+            if child.tag == qn("w:p"):
+                p = Paragraph(child, doc)
+                if p.text.strip():
+                    parts.append(p.text.strip())
+            elif child.tag == qn("w:tbl"):
+                table = Table(child, doc)
+                for row in table.rows:
+                    cells: list[str] = []
+                    prev = None
+                    for c in row.cells:
+                        t = c.text.strip()
+                        # 合并单元格会返回重复引用，连续相同只保留一个
+                        if t != prev:
+                            cells.append(t)
+                            prev = t
+                    if cells:
+                        parts.append(" | ".join(cells))
+        return "\n".join(parts)
     if file_type in ("xlsx", "xls"):
         import pandas as pd
 
