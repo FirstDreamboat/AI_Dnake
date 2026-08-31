@@ -7,9 +7,16 @@
 【普通生成模式 + 管道分隔文本】输出，模型枚举能力更强（已实测 9/9 完整枚举），
 再由代码解析为结构化 JSON。若模型偶尔仍输出 JSON，同样兼容解析。
 """
+import logging
 import re
 
 from app.agents.base import BaseAgent
+
+logger = logging.getLogger(__name__)
+
+
+class RequirementParseError(RuntimeError):
+    """需求解析失败（LLM 调用失败或持续无有效输出），向上抛出使任务显式失败"""
 
 REQUIREMENT_PARSE_PROMPT = """你是一名资深的嵌入式软件测试需求分析师。
 请阅读以下需求文档内容，提取出结构化的【功能需求清单】。
@@ -17,13 +24,14 @@ REQUIREMENT_PARSE_PROMPT = """你是一名资深的嵌入式软件测试需求�
 要求：
 1. 每行输出一条需求，格式严格为（用 | 分隔，共 6 列）：
    序号|需求名称|需求描述|优先级|类别|业务流程
-   例如：1|文档上传解析|支持 PDF/Word/TXT/Markdown 文档上传并解析|P0|功能|登录系统>进入需求管理>上传文档>系统解析>查看解析结果
+   例如：1|设备配网|用户通过手机APP扫描设备二维码并输入WiFi密码完成配网|P0|功能|打开APP>添加设备>扫描二维码>输入WiFi密码>等待配网成功
 2. 优先级取值: P0（核心）/ P1（重要）/ P2（一般）
 3. 类别取值: 功能 / 性能 / 安全 / 兼容性
 4. 极其重要：文档中每个功能模块的每个需求项（如 FR-1.1、FR-2.2 等编号的需求）都必须对应输出一行，不要遗漏，不要合并，宁多勿漏
 5. 需求名称用简洁的动宾短语概括，需求描述说明具体功能/指标/规则
 6. 业务流程：用 > 连接该需求的关键业务步骤（3~8 步），描述其业务流转过程；纯性能/安全类需求可填 -
 7. 不要输出任何其他文字（不要标题、不要解释、不要 markdown 代码块），只输出上述格式的文本行
+8. 极其重要：上述示例仅用于说明输出格式，严禁照抄示例内容；所有需求必须严格基于需求文档，严禁输出与文档内容无关的功能（尤其严禁输出平台自身功能，如需求管理、文档解析、登录注册等）
 
 需求文档内容：
 {content}
@@ -175,6 +183,10 @@ class RequirementParserAgent(BaseAgent):
             # 数量不足兜底：提高随机度再解析一次，合并去重
             if len(reqs) < MIN_EXPECTED_PER_CHUNK:
                 reqs = self._merge_unique(reqs, self._parse_chunk(prompt, temperature=RETRY_TEMPERATURE))
+            if not reqs:
+                raise RequirementParseError(
+                    "需求解析失败：模型连续两次未返回有效结果，请检查 LLM 服务（Ollama/DeepSeek）是否可用"
+                )
             all_requirements = self._merge_unique(all_requirements, reqs)
         return all_requirements
 
@@ -183,7 +195,8 @@ class RequirementParserAgent(BaseAgent):
             # 普通生成模式（非 json mode），管道分隔文本枚举能力更强
             text = self.llm.chat(prompt, system=self.system_prompt, temperature=temperature)
             return parse_requirements_text(text)
-        except Exception:
+        except Exception as e:
+            logger.error("[requirement_parser] LLM 调用失败: %s", e)
             return []
 
     @staticmethod

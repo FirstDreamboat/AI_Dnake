@@ -15,6 +15,8 @@ TEST_CASE_GENERATE_PROMPT = """你是一名资深的嵌入式软件测试用例�
 2. 本批共 {batch_size} 个测试点，用例总数不得少于 {min_cases} 条，不要遗漏任何测试点
 3. 每条用例必须包含以下字段：
    - title: 用例标题（简洁描述被测场景）
+   - module: 所属功能模块（简明分类，如"设备管理""呼叫对讲""场景联动"等，无明确归属时填"通用"）
+   - test_point: 所属测试点名称（必须从上方【测试点】列表中原样复制该条用例对应的测试点名称，不允许改写）
    - preconditions: 前置条件
    - steps: 测试步骤数组，每步包含 step_no(序号)、action(操作)、expected(该步预期)
    - expected_result: 最终预期结果
@@ -22,6 +24,7 @@ TEST_CASE_GENERATE_PROMPT = """你是一名资深的嵌入式软件测试用例�
    - test_type: 测试类型（功能测试/异常测试/边界测试/性能测试/安全测试等）
 4. 步骤描述要具体、可执行、无歧义
 5. 必须输出 JSON 数组（以 [ 开头），不要输出对象字典（以 { 开头），不要输出任何解释文字
+6. 极其重要：所有用例必须严格基于上方【测试点】列表设计，严禁生成与测试点无关的功能，尤其严禁生成"需求管理""文档上传解析""登录注册""用户管理""权限管理"等平台自身功能；【参考历史用例】仅供写作风格借鉴，严禁照搬其中的功能模块与业务内容
 
 【测试点】
 {test_points}
@@ -85,7 +88,8 @@ class TestCaseGeneratorAgent(BaseAgent):
         try:
             result = self.llm.chat_json(prompt, system=self.system_prompt, temperature=temperature)
             return self._normalize(result)
-        except Exception:
+        except Exception as e:
+            logger.error("[test_case_generator] LLM 调用失败: %s", e)
             return []
 
     @staticmethod
@@ -115,7 +119,7 @@ class TestCaseGeneratorAgent(BaseAgent):
             return str(v)
 
         cleaned = dict(c)
-        for key in ("preconditions", "expected_result", "title", "priority", "test_type"):
+        for key in ("preconditions", "expected_result", "title", "priority", "test_type", "module", "test_point"):
             if key in cleaned:
                 cleaned[key] = to_str(cleaned[key])
         return cleaned

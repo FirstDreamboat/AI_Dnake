@@ -6,6 +6,8 @@ import zipfile
 from datetime import datetime
 
 import pandas as pd
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BusinessError
@@ -16,6 +18,7 @@ from app.services.test_case_service import _gen_case_no
 FIELD_MAP = {
     "用例编号": "case_no",
     "用例标题": "title",
+    "模块": "module",
     "前置条件": "preconditions",
     "测试步骤": "steps",
     "预期结果": "expected_result",
@@ -73,8 +76,74 @@ def _parse_steps(text: str) -> list[dict]:
     return steps
 
 
+# 长文本列：固定更宽列宽并开启自动换行
+_WIDE_COLUMNS = {"前置条件", "测试步骤", "预期结果"}
+_WIDE_COLUMN_WIDTH = 45
+_MAX_NARROW_COLUMN_WIDTH = 32
+_MIN_COLUMN_WIDTH = 8
+_LINE_HEIGHT = 15.5  # 单行行高估算值（磅）
+
+
+def _display_width(text: str) -> int:
+    """按 Excel 列宽单位估算文本宽度（中文等全角字符按 2 计）"""
+    return sum(2 if ord(ch) > 127 else 1 for ch in text)
+
+
+def _apply_sheet_style(ws, columns: list[str]) -> None:
+    """为导出的工作表应用样式：表头加粗着色、全表边框、自动换行、列宽与行高"""
+    # 表头样式
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="4472C4")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+
+    thin = Side(style="thin", color="BFBFBF")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    data_alignment = Alignment(vertical="top", wrap_text=True)
+
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.border = border
+            if cell.row > 1:
+                cell.alignment = data_alignment
+
+    # 列宽：长文本列固定较宽，其余按内容自适应
+    wide_indexes = []
+    for idx, name in enumerate(columns, start=1):
+        letter = get_column_letter(idx)
+        if name in _WIDE_COLUMNS:
+            wide_indexes.append(idx)
+            ws.column_dimensions[letter].width = _WIDE_COLUMN_WIDTH
+        else:
+            max_len = _MIN_COLUMN_WIDTH
+            for cell in ws[letter]:
+                if cell.value is not None:
+                    max_len = max(max_len, _display_width(str(cell.value)))
+            ws.column_dimensions[letter].width = min(max_len + 3, _MAX_NARROW_COLUMN_WIDTH)
+
+    # 冻结表头，滚动时始终可见
+    ws.freeze_panes = "A2"
+
+    # 行高估算：长文本列按换行后行数计算，保证内容完整显示
+    for row in ws.iter_rows(min_row=2):
+        max_lines = 1
+        for idx in wide_indexes:
+            cell = row[idx - 1]
+            if cell.value is None:
+                continue
+            lines = 0
+            for line in str(cell.value).splitlines():
+                # 每行按列宽估算需占用的显示行数
+                lines += max(1, (_display_width(line.strip()) + _WIDE_COLUMN_WIDTH - 1) // _WIDE_COLUMN_WIDTH)
+            max_lines = max(max_lines, lines)
+        ws.row_dimensions[row[0].row].height = max(20, max_lines * _LINE_HEIGHT + 4)
+
+
 def export_cases(db: Session, case_ids: list[int]) -> bytes:
-    """导出用例为 Excel，返回字节流"""
+    """导出用例为 Excel（带自动换行、列宽、边框等样式），返回字节流"""
     cases = db.query(TestCase).filter(TestCase.id.in_(case_ids)).all()
     rows = []
     for c in cases:
@@ -85,6 +154,7 @@ def export_cases(db: Session, case_ids: list[int]) -> bytes:
             {
                 "用例编号": c.case_no,
                 "用例标题": c.title,
+                "模块": c.module or "",
                 "前置条件": c.preconditions or "",
                 "测试步骤": steps_text,
                 "预期结果": c.expected_result,
@@ -98,6 +168,7 @@ def export_cases(db: Session, case_ids: list[int]) -> bytes:
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="测试用例")
+        _apply_sheet_style(writer.sheets["测试用例"], columns=list(df.columns))
     return buffer.getvalue()
 
 
@@ -114,7 +185,7 @@ def export_cases_markdown(db: Session, case_ids: list[int]) -> str:
     for idx, c in enumerate(cases, start=1):
         lines.append(f"## {idx}. {c.case_no} · {c.title}")
         lines.append("")
-        lines.append(f"- 优先级：{c.priority}　- 测试类型：{c.test_type}　- 来源：{c.source}")
+        lines.append(f"- 模块：{c.module or '（未分类）'}　- 优先级：{c.priority}　- 测试类型：{c.test_type}　- 来源：{c.source}")
         lines.append("")
         lines.append("**前置条件**")
         lines.append("")
@@ -175,6 +246,7 @@ def export_cases_xmind(db: Session, case_ids: list[int]) -> bytes:
 
     def _case_topic(c) -> dict:
         kids = [
+            _topic(f"模块：{c.module or '未分类'}"),
             _topic(f"前置条件：{c.preconditions or '无'}"),
             _topic(f"优先级：{c.priority}｜类型：{c.test_type}"),
         ]

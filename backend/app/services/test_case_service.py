@@ -43,7 +43,7 @@ def _gen_case_no(db: Session, project_id: int) -> str:
 def list_cases(
     db: Session, page: int, page_size: int, project_id: int | None = None,
     priority: str | None = None, status: str | None = None, source: str | None = None,
-    keyword: str | None = None,
+    keyword: str | None = None, module: str | None = None,
 ) -> tuple[list[TestCase], int]:
     stmt = select(TestCase)
     if project_id:
@@ -54,12 +54,46 @@ def list_cases(
         stmt = stmt.where(TestCase.status == status)
     if source:
         stmt = stmt.where(TestCase.source == source)
+    if module:
+        stmt = stmt.where(TestCase.module == module)
     if keyword:
         like = f"%{keyword}%"
         stmt = stmt.where(or_(TestCase.title.like(like), TestCase.case_no.like(like)))
     total = len(db.scalars(stmt).all())
     cases = db.scalars(stmt.order_by(TestCase.created_at.desc()).offset((page - 1) * page_size).limit(page_size)).all()
     return list(cases), total
+
+
+def list_case_ids(
+    db: Session, project_id: int | None = None,
+    priority: str | None = None, status: str | None = None,
+    source: str | None = None, keyword: str | None = None, module: str | None = None,
+) -> list[tuple[int, str]]:
+    """返回当前查询条件下所有用例的 (id, source)，用于前端跨页全选"""
+    stmt = select(TestCase.id, TestCase.source)
+    if project_id:
+        stmt = stmt.where(TestCase.project_id == project_id)
+    if priority:
+        stmt = stmt.where(TestCase.priority == priority)
+    if status:
+        stmt = stmt.where(TestCase.status == status)
+    if source:
+        stmt = stmt.where(TestCase.source == source)
+    if module:
+        stmt = stmt.where(TestCase.module == module)
+    if keyword:
+        like = f"%{keyword}%"
+        stmt = stmt.where(or_(TestCase.title.like(like), TestCase.case_no.like(like)))
+    return list(db.execute(stmt).all())
+
+
+def list_modules(db: Session, project_id: int | None = None) -> list[str]:
+    """返回项目下已有用例的去重模块列表（用于前端模块下拉筛选/编辑）"""
+    stmt = select(TestCase.module).where(TestCase.module.is_not(None)).distinct()
+    if project_id:
+        stmt = stmt.where(TestCase.project_id == project_id)
+    stmt = stmt.order_by(TestCase.module)
+    return [m for m in db.scalars(stmt).all() if m]
 
 
 def get_case(db: Session, case_id: int) -> TestCase:
@@ -75,6 +109,7 @@ def create_case(db: Session, req: TestCaseCreate, user_id: int) -> TestCase:
         project_id=req.project_id,
         test_point_id=req.test_point_id,
         title=req.title,
+        module=(req.module or "").strip() or None,
         preconditions=req.preconditions,
         steps=[s.model_dump() for s in req.steps],
         expected_result=req.expected_result,
@@ -282,7 +317,7 @@ def regenerate_cases(db: Session, case_ids: list[int], user_id: int) -> list[Tes
             "请基于以下信息重新生成一份更完善、可执行性更强的测试用例。\n\n"
             + "\n".join(context)
             + "\n\n请严格输出 JSON，格式如下:\n"
-            '{"title": "用例标题", "preconditions": "前置条件", '
+            '{"title": "用例标题", "module": "所属功能模块，如设备管理", "preconditions": "前置条件", '
             '"steps": [{"step_no": 1, "action": "操作步骤", "expected": "该步骤预期结果"}], '
             '"expected_result": "预期结果", "priority": "P0|P1|P2|P3|P4", "test_type": "测试类型"}\n'
             "只输出 JSON 对象，不要输出任何其他内容。"
@@ -311,6 +346,7 @@ def regenerate_cases(db: Session, case_ids: list[int], user_id: int) -> list[Tes
         )
         steps = data.get("steps") or []
         case.title = _to_str(data.get("title")) or case.title
+        case.module = (_to_str(data.get("module")) or "").strip() or case.module
         case.preconditions = _to_str(data.get("preconditions"))
         case.steps = steps if isinstance(steps, list) else case.steps
         case.expected_result = _to_str(data.get("expected_result")) or case.expected_result
@@ -345,6 +381,7 @@ def save_generated_case(db: Session, project_id: int, data: dict, test_point_id:
         project_id=project_id,
         test_point_id=test_point_id,
         title=_to_str(data.get("title")) or "未命名用例",
+        module=(_to_str(data.get("module")) or "").strip() or None,
         preconditions=_to_str(data.get("preconditions")),
         steps=steps,
         expected_result=_to_str(data.get("expected_result")) or "",

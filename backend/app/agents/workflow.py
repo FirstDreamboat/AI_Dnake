@@ -67,10 +67,15 @@ class GenerateWorkflow:
             query_text = "；".join(
                 f"{r.get('name')}: {r.get('description')}" for r in result.requirements[:10] if r.get("name")
             ) or content[:500]
-            rag_context = rag_service.build_context(
-                query_text,
-                top_k=options.get("reference_count", 5),
-            )
+            try:
+                rag_context = rag_service.build_context(
+                    query_text,
+                    top_k=options.get("reference_count", 5),
+                )
+            except Exception:
+                # RAG 检索失败不阻塞主流程：降级为不使用参考用例
+                logger.warning("RAG 检索失败，本次生成不使用参考用例", exc_info=True)
+                rag_context = ""
 
         # 4. 用例生成
         self._progress(60, "case_generation")

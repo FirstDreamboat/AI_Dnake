@@ -14,12 +14,16 @@
           <el-option label="已评审" value="reviewed" />
           <el-option label="已通过" value="approved" />
         </el-select>
-        <el-button type="primary" @click="loadData">查询</el-button>
-        <el-button type="success" :disabled="!selected.length" @click="handleBatchApprove">批量通过</el-button>
-        <el-button type="warning" plain :disabled="!selected.length" @click="handleBatchRegenerate">批量重生成</el-button>
-        <el-button type="danger" plain :disabled="!selected.length" @click="handleBatchDelete">批量删除</el-button>
-        <el-button type="danger" :disabled="!selected.length" @click="openScriptDialog">生成脚本</el-button>
-        <el-dropdown :disabled="!selected.length" @command="handleExport">
+        <el-select v-model="filters.module" placeholder="模块" clearable filterable class="filter" style="width: 150px">
+          <el-option v-for="m in moduleOptions" :key="m" :label="m" :value="m" />
+        </el-select>
+        <el-button type="primary" @click="loadData(true)">查询</el-button>
+        <span v-if="selectedCount" class="selected-info">已选 {{ selectedCount }} 条</span>
+        <el-button type="success" :disabled="!selectedCount" @click="handleBatchApprove">批量通过</el-button>
+        <el-button type="warning" plain :disabled="!selectedCount" @click="handleBatchRegenerate">批量重生成</el-button>
+        <el-button type="danger" plain :disabled="!selectedCount" @click="handleBatchDelete">批量删除</el-button>
+        <el-button type="danger" :disabled="!selectedCount" @click="openScriptDialog">生成脚本</el-button>
+        <el-dropdown :disabled="!selectedCount" @command="handleExport">
           <el-button type="warning">
             导出<el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
@@ -35,10 +39,25 @@
       </div>
     </el-card>
 
-    <el-table :data="list" v-loading="loading" border stripe @selection-change="(rows: any[]) => (selected = rows)">
-      <el-table-column type="selection" width="45" />
+    <el-table
+      ref="tableRef"
+      :data="list"
+      row-key="id"
+      v-loading="loading"
+      border
+      stripe
+      @selection-change="handleSelectionChange"
+      @select-all="handleSelectAll"
+    >
+      <el-table-column type="selection" width="45" reserve-selection />
       <el-table-column prop="case_no" label="用例编号" width="120" />
       <el-table-column prop="title" label="用例标题" min-width="200" show-overflow-tooltip />
+      <el-table-column prop="module" label="模块" width="120" show-overflow-tooltip>
+        <template #default="{ row }">
+          <el-tag v-if="row.module" type="info" size="small" effect="plain">{{ row.module }}</el-tag>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
       <el-table-column label="优先级" width="80">
         <template #default="{ row }">
           <el-tag :type="priorityType[row.priority]" size="small">{{ row.priority }}</el-tag>
@@ -106,6 +125,7 @@
           <div class="detail-title">{{ current.title }}</div>
           <div class="detail-meta">
             <el-tag size="small">{{ current.case_no }}</el-tag>
+            <el-tag size="small" type="info" effect="plain">{{ current.module || '未分类' }}</el-tag>
             <el-tag size="small" :type="priorityType[current.priority]">{{ current.priority }}</el-tag>
             <el-tag size="small" type="info">{{ current.test_type }}</el-tag>
             <el-tag size="small" :type="statusType[current.status]">{{ statusMap[current.status] }}</el-tag>
@@ -126,6 +146,19 @@
         <el-form v-else :model="editForm" label-width="90px">
           <el-form-item label="用例标题" required>
             <el-input v-model="editForm.title" />
+          </el-form-item>
+          <el-form-item label="模块">
+            <el-select
+              v-model="editForm.module"
+              placeholder="选择或输入模块，如登录注册"
+              filterable
+              allow-create
+              default-first-option
+              clearable
+              style="width: 100%"
+            >
+              <el-option v-for="m in moduleOptions" :key="m" :label="m" :value="m" />
+            </el-select>
           </el-form-item>
           <el-form-item label="优先级">
             <el-select v-model="editForm.priority" style="width: 140px">
@@ -189,12 +222,12 @@
     </el-dialog>
 
     <!-- 生成脚本 -->
-    <ScriptGenerateDialog ref="scriptDialogRef" :project-id="projectId" :case-ids="selected.map((r: any) => r.id)" :case-count="selected.length" />
+    <ScriptGenerateDialog ref="scriptDialogRef" :project-id="projectId" :case-ids="selectedIdsArr" :case-count="selectedCount" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
@@ -210,8 +243,16 @@ const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
-const selected = ref<any[]>([])
-const filters = reactive({ priority: '', status: '' })
+const filters = reactive({ priority: '', status: '', module: '' })
+const moduleOptions = ref<string[]>([])
+
+// ===== 跨页选中集合（id -> source），全选可覆盖当前查询条件下的全部用例 =====
+const tableRef = ref<any>(null)
+const selectedMap = ref<Map<number, string>>(new Map())
+let skipSelectAllSync = false
+
+const selectedIdsArr = computed(() => Array.from(selectedMap.value.keys()))
+const selectedCount = computed(() => selectedMap.value.size)
 
 const detailVisible = ref(false)
 const current = ref<any>(null)
@@ -232,7 +273,11 @@ const sourceMap: Record<string, string> = { ai: 'AI生成', manual: '人工', ai
 const statusMap: Record<string, string> = { draft: '草稿', reviewed: '已评审', approved: '已通过' }
 const statusType: Record<string, string> = { draft: 'info', reviewed: 'success', approved: 'primary' }
 
-const loadData = async () => {
+const loadData = async (resetSelection = false) => {
+  if (resetSelection) {
+    selectedMap.value = new Map()
+    tableRef.value?.clearSelection()
+  }
   loading.value = true
   try {
     const data = await testCaseApi.list({
@@ -241,12 +286,72 @@ const loadData = async () => {
       page_size: pageSize.value,
       priority: filters.priority || undefined,
       status: filters.status || undefined,
+      module: filters.module || undefined,
     })
     list.value = data.list
     total.value = data.total
   } finally {
     loading.value = false
   }
+}
+
+// ===== 模块下拉数据 =====
+const loadModules = async () => {
+  try {
+    const res: any = await testCaseApi.modules(projectId)
+    moduleOptions.value = res?.modules ?? res?.data?.modules ?? []
+  } catch (e: any) {
+    // 模块列表加载失败不影响用例列表展示
+  }
+}
+
+// ===== 跨页全选 =====
+const collectAllIds = async () => {
+  const res: any = await testCaseApi.listIds({
+    project_id: projectId,
+    priority: filters.priority || undefined,
+    status: filters.status || undefined,
+    module: filters.module || undefined,
+  })
+  const items: { id: number; source: string }[] = res?.items ?? []
+  const map = new Map<number, string>()
+  for (const it of items) map.set(it.id, it.source)
+  selectedMap.value = map
+  return map.size
+}
+
+const handleSelectAll = async (rows: any[]) => {
+  if (rows.length) {
+    // 勾选表头全选：选中当前查询条件下全部用例（跨页）
+    skipSelectAllSync = true
+    try {
+      const count = await collectAllIds()
+      ElMessage.success(`已全选 ${count} 条用例`)
+    } catch (e: any) {
+      ElMessage.error(e?.message || '获取全部用例失败')
+      tableRef.value?.clearSelection()
+    }
+  } else {
+    // 取消全选
+    skipSelectAllSync = true
+    selectedMap.value = new Map()
+  }
+}
+
+const handleSelectionChange = (rows: any[]) => {
+  // 全选触发后紧随的 selection-change 已由 handleSelectAll 处理，跳过
+  if (skipSelectAllSync) {
+    skipSelectAllSync = false
+    return
+  }
+  // 手动勾选/取消单行（含翻页后的 reserve-selection 同步）：只增删当前页对应 id
+  const selectedPageIds = new Set(rows.map((r: any) => r.id))
+  const next = new Map(selectedMap.value)
+  for (const r of list.value) {
+    if (selectedPageIds.has(r.id)) next.set(r.id, r.source)
+    else next.delete(r.id)
+  }
+  selectedMap.value = next
 }
 
 const openDetail = (row: any) => {
@@ -285,6 +390,7 @@ const confirmReject = async () => {
 const startEdit = () => {
   Object.assign(editForm, {
     title: current.value.title,
+    module: current.value.module || '',
     priority: current.value.priority || 'P2',
     test_type: current.value.test_type || '功能测试',
     preconditions: current.value.preconditions || '',
@@ -315,6 +421,7 @@ const saveEdit = async () => {
   try {
     const payload = {
       title: editForm.title,
+      module: editForm.module || null,
       priority: editForm.priority,
       test_type: editForm.test_type,
       preconditions: editForm.preconditions,
@@ -352,7 +459,7 @@ const handleAutoComplete = async () => {
 }
 
 const handleBatchApprove = async () => {
-  await testCaseApi.batch({ case_ids: selected.value.map((r) => r.id), action: 'approve' })
+  await testCaseApi.batch({ case_ids: selectedIdsArr.value, action: 'approve' })
   ElMessage.success('批量通过成功')
   loadData()
 }
@@ -371,7 +478,9 @@ const handleFeedback = async (row: any, feedback: 'good' | 'bad') => {
 
 // ===== 批量重生成 (FR-3.8) =====
 const handleBatchRegenerate = async () => {
-  const ids = selected.value.filter((r) => r.source === 'ai').map((r) => r.id)
+  const ids = Array.from(selectedMap.value.entries())
+    .filter(([, source]) => source === 'ai')
+    .map(([id]) => id)
   if (!ids.length) {
     ElMessage.warning('请选择 AI 生成的用例')
     return
@@ -397,8 +506,8 @@ const handleRegenerate = async (row: any) => {
 }
 
 const handleBatchDelete = async () => {
-  await ElMessageBox.confirm(`确认删除选中的 ${selected.value.length} 条用例？删除后不可恢复。`, '批量删除', { type: 'error' })
-  await testCaseApi.batch({ case_ids: selected.value.map((r) => r.id), action: 'delete' })
+  await ElMessageBox.confirm(`确认删除选中的 ${selectedCount.value} 条用例？删除后不可恢复。`, '批量删除', { type: 'error' })
+  await testCaseApi.batch({ case_ids: selectedIdsArr.value, action: 'delete' })
   ElMessage.success('批量删除成功')
   loadData()
 }
@@ -408,7 +517,7 @@ const openScriptDialog = () => {
 }
 
 const handleExport = async (format: 'excel' | 'markdown' | 'json' | 'xmind' = 'excel') => {
-  const blob = (await testCaseApi.export(selected.value.map((r) => r.id), format)) as any
+  const blob = (await testCaseApi.export(selectedIdsArr.value, format)) as any
   const url = URL.createObjectURL(new Blob([blob]))
   const a = document.createElement('a')
   const ext = format === 'excel' ? 'xlsx' : format
@@ -418,7 +527,10 @@ const handleExport = async (format: 'excel' | 'markdown' | 'json' | 'xmind' = 'e
   URL.revokeObjectURL(url)
 }
 
-onMounted(loadData)
+onMounted(() => {
+  loadData()
+  loadModules()
+})
 </script>
 
 <style scoped>
@@ -438,6 +550,12 @@ onMounted(loadData)
 
 .filter {
   width: 130px;
+}
+
+.selected-info {
+  margin: 0 4px;
+  color: #606266;
+  font-size: 13px;
 }
 
 .pagination {

@@ -48,6 +48,10 @@ export const testPointApi = {
 // ===== 测试用例 =====
 export const testCaseApi = {
   list: (params?: any) => request.get('/test-cases', { params }),
+  // 跨页全选：返回当前查询条件下全部用例的 id + source（ids_only=true 不分页）
+  listIds: (params?: any) => request.get('/test-cases', { params: { ...params, ids_only: true } }),
+  // 项目下已有用例的去重模块列表
+  modules: (projectId?: number) => request.get('/test-cases/modules', { params: { project_id: projectId } }),
   detail: (id: number) => request.get(`/test-cases/${id}`),
   create: (data: any) => request.post('/test-cases', data),
   update: (id: number, data: any) => request.put(`/test-cases/${id}`, data),

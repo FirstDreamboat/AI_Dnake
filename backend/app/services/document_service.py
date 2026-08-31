@@ -2,7 +2,9 @@
 import csv as _csv
 import html
 import io
+import os
 import re
+import tempfile
 import urllib.parse
 from pathlib import Path
 
@@ -22,6 +24,120 @@ SUPPORTED_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
     ".rp",
 }
+
+# Markdown 图片提取：识别 ![](path) 与 <img src="..."> 语法
+_MD_IMG_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_HTML_IMG_RE = re.compile(r"<img\b[^>]*?src=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
+_MD_IMG_LIMIT = 20  # 单篇 md 最多解析的图片数，避免视觉 API 消耗过大
+_RASTER_FMTS = {"png", "jpg", "jpeg", "gif", "webp", "bmp"}
+
+
+def _save_temp_image(data: bytes, fmt: str) -> str | None:
+    """将图片字节写入临时文件，返回路径；不支持的格式返回 None"""
+    fmt = (fmt or "png").lower()
+    suffix = "." + fmt if fmt in _RASTER_FMTS else ".png"
+    if fmt not in _RASTER_FMTS:
+        return None
+    fd, path = tempfile.mkstemp(prefix="mdimg_", suffix=suffix)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    return path
+
+
+def _resolve_md_image(ref: str, base_dir: Path) -> tuple[str | None, bool]:
+    """将 md 图片引用解析为本地图片路径，返回 (路径, 是否为临时文件)
+
+    支持三种形式: base64 内嵌图(data:image/...)、网络链接(http/https)、
+    本地相对路径。无法解析或非位图格式时返回 (None, False)。
+    """
+    ref = ref.strip()
+    if ref.startswith("data:"):
+        m = re.match(r"data:image/([\w.+-]*);base64,", ref, re.IGNORECASE)
+        if not m:
+            return None, False
+        try:
+            import base64
+
+            data = base64.b64decode(re.sub(r"\s+", "", ref.split(",", 1)[1]))
+        except Exception:
+            return None, False
+        path = _save_temp_image(data, m.group(1))
+        return (path, True) if path else (None, False)
+    if ref.startswith(("http://", "https://")):
+        try:
+            resp = httpx.get(ref, timeout=20, follow_redirects=True)
+            resp.raise_for_status()
+        except Exception:
+            return None, False
+        suffix = Path(urllib.parse.urlparse(ref).path).suffix.lower().lstrip(".")
+        path = _save_temp_image(resp.content, suffix)
+        return (path, True) if path else (None, False)
+    local = (base_dir / ref).resolve()
+    if not local.is_file():
+        return None, False
+    return str(local), False
+
+
+def _describe_one_md_image(ref: str, base_dir: Path, llm_service) -> str:
+    """解析单个 md 图片引用并调用视觉模型描述；失败返回空串（保留原引用）"""
+    image_path, is_temp = _resolve_md_image(ref, base_dir)
+    if not image_path:
+        return ""
+    try:
+        return llm_service.describe_image(image_path) or ""
+    except Exception:
+        return ""
+    finally:
+        if is_temp and image_path:
+            try:
+                os.remove(image_path)
+            except OSError:
+                pass
+
+
+def _extract_md_images(text: str, base_dir: Path) -> str:
+    """提取 Markdown 中的图片引用，用视觉模型描述文本替换
+
+    - 未启用视觉模型或图片无法解析时，保留原始引用不丢失
+    - 同一张图多处引用只调用一次视觉模型（按引用缓存）
+    - 单篇最多解析 _MD_IMG_LIMIT 张图，避免 API 消耗过大
+    """
+    if not text:
+        return text
+    from app.config import settings
+    from app.services.llm_service import llm_service
+
+    if not settings.VISION_ENABLED or not llm_service.vision_health():
+        return text
+
+    cache: dict[str, str] = {}
+    count = {"n": 0}
+
+    def _repl(m: re.Match, ref: str, alt: str) -> str:
+        if count["n"] >= _MD_IMG_LIMIT:
+            return m.group(0)
+        if ref not in cache:
+            cache[ref] = _describe_one_md_image(ref, base_dir, llm_service)
+        desc = cache[ref]
+        if not desc:
+            return m.group(0)
+        count["n"] += 1
+        label = f"图片{('：' + alt) if alt else ''}"
+        return f"\n\n[{label}]\n{desc.strip()}\n"
+
+    def _md_repl(m: re.Match) -> str:
+        ref = (m.group(2) or "").strip().split(" ", 1)[0].strip()
+        return _repl(m, ref, (m.group(1) or "").strip())
+
+    def _html_repl(m: re.Match) -> str:
+        alt = ""
+        am = re.search(r"alt=[\"']([^\"']*)[\"']", m.group(0), re.IGNORECASE)
+        if am:
+            alt = am.group(1).strip()
+        return _repl(m, m.group(1).strip(), alt)
+
+    text = _MD_IMG_RE.sub(_md_repl, text)
+    return _HTML_IMG_RE.sub(_html_repl, text)
 
 
 def save_upload_file(file, upload_dir: Path, title: str | None = None) -> tuple[str, str]:
@@ -84,7 +200,8 @@ def parse_document_file(file_path: str, file_type: str) -> str:
     if file_type == "txt":
         return path.read_text(encoding="utf-8", errors="ignore")
     if file_type == "md":
-        return path.read_text(encoding="utf-8", errors="ignore")
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        return _extract_md_images(text, path.parent)
     if file_type == "pdf":
         from pypdf import PdfReader
 

@@ -14,6 +14,7 @@ class TestCaseCreate(BaseModel):
     project_id: int
     test_point_id: int | None = None
     title: str = Field(..., min_length=1, max_length=200)
+    module: str | None = None  # 所属模块，如"登录注册"
     preconditions: str | None = None
     steps: list[TestStep] = []
     expected_result: str
@@ -58,6 +59,7 @@ class TestCaseOut(BaseModel):
     project_id: int
     test_point_id: int | None
     title: str
+    module: str | None = None
     preconditions: str | None
     steps: list[dict]
     expected_result: str

@@ -7,6 +7,7 @@ import threading
 import uuid
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agents.workflow import GenerateWorkflow
@@ -14,9 +15,50 @@ from app.core.exceptions import BusinessError, NotFoundError
 from app.database import SessionLocal
 from app.models.document import Document
 from app.models.generation_task import GenerationTask
+from app.models.test_case import TestCase
 from app.models.test_point import TestPoint
+from app.models.user import User
+from app.services import notification_service
 from app.services.document_service import parse_document
 from app.services.test_case_service import save_generated_case
+
+# ---------------------------------------------------------------------------
+# 平台自身功能关键词（兜底拦截 AI 误生成的平台功能，避免混入产品用例）。
+# 仅收录高置信度的平台专属词，避免误杀产品真实功能（如对讲、门禁、家居等）。
+# 注意：产品侧存在"成员角色权限""家庭头像上传"等含"权限/上传"字样的功能，
+# 因此不使用"权限管理""文件上传"等宽泛词，防止误拦截。
+# ---------------------------------------------------------------------------
+PLATFORM_FEATURE_KEYWORDS = (
+    "需求管理", "需求列表", "需求评审", "需求导入", "需求跟踪", "需求编号",
+    "用例管理", "用例评审", "测试用例平台", "用例库", "用例执行",
+    "文档解析", "文档上传", "知识库", "向量检索",
+    "审计日志", "操作日志", "租户", "多租户", "数据隔离",
+    "项目管理", "项目成员", "项目列表", "项目归档", "项目导出", "项目导入",
+    "公告管理", "用户权限管理", "系统访问控制", "接口访问控制",
+    "数据备份", "数据迁移", "数据库连接", "系统部署", "敏感数据脱敏",
+    "模板管理", "消息模板", "报表导出", "基线评审", "评审管理", "评审意见",
+    "通知管理", "系统帮助", "用户信息管理", "操作审计", "并发用户", "附件管理",
+)
+
+
+def _is_platform_feature(*texts) -> bool:
+    """文本命中平台自身功能关键词即判定为平台功能（用于兜底过滤）"""
+    joined = "|".join(t for t in texts if t)
+    if not joined:
+        return False
+    return any(kw in joined for kw in PLATFORM_FEATURE_KEYWORDS)
+
+
+def _match_test_point(tp_map: dict, name: str) -> TestPoint | None:
+    """按测试点名称匹配用例归属：先精确匹配，再包含匹配（避免模型输出微差导致挂空）"""
+    if not name:
+        return None
+    if name in tp_map:
+        return tp_map[name]
+    for key, point in tp_map.items():
+        if len(key) >= 3 and len(name) >= 3 and (key in name or name in key):
+            return point
+    return None
 
 
 def _gen_task_no() -> str:
@@ -76,12 +118,12 @@ def _run_workflow(task_id: int, document_ids: list[int], options: dict, user_id:
         task.started_at = datetime.now()
         db.commit()
 
-        # 解析所有关联文档
-        contents: list[str] = []
+        # 解析所有关联文档（携带文档 id，保证测试点归属正确）
+        contents: list[tuple[int, str]] = []
         for doc_id in document_ids:
             doc, text = parse_document(db, doc_id)
             if text:
-                contents.append(f"【文档：{doc.title}】\n{text}")
+                contents.append((doc_id, f"【文档：{doc.title}】\n{text}"))
 
         total_case = 0
         generated_cases: list[dict] = []
@@ -94,9 +136,21 @@ def _run_workflow(task_id: int, document_ids: list[int], options: dict, user_id:
             task.progress = percent
             db.commit()
 
-        for content in contents:
+        # 幂等去重：加载项目内已有测试点名称与用例标题，防止重复任务/跨文档生成重复数据
+        existing_point_names: set[str] = set(
+            n for (n,) in db.execute(
+                select(TestPoint.name).where(TestPoint.project_id == task.project_id)
+            ).all() if n
+        )
+        existing_case_titles: set[str] = set(
+            t for (t,) in db.execute(
+                select(TestCase.title).where(TestCase.project_id == task.project_id)
+            ).all() if t
+        )
+
+        for doc_id, text in contents:
             workflow = GenerateWorkflow(progress_cb=progress_cb)
-            result = workflow.run(content, options)
+            result = workflow.run(text, options)
             # 汇总业务流程（FR-1.4）
             for r in result.requirements:
                 flow = (r.get("business_flow") or "").strip()
@@ -105,31 +159,48 @@ def _run_workflow(task_id: int, document_ids: list[int], options: dict, user_id:
             # 汇总评审结果（FR-5）
             if result.review:
                 reviews.append(result.review)
-            # 测试点入库
+            # 测试点入库（兜底拦截平台自身功能，避免混入产品测试点）
             test_points_in_db: list[TestPoint] = []
             for tp in result.test_points:
+                if _is_platform_feature(tp.get("name"), tp.get("description")):
+                    continue
+                name = (tp.get("name") or "").strip() or "未命名测试点"
+                # 项目内已有同名测试点时复用，避免重复堆积
+                if name in existing_point_names:
+                    continue
                 point = TestPoint(
-                    document_id=document_ids[0],
+                    document_id=doc_id,
                     project_id=task.project_id,
-                    name=tp.get("name", "未命名测试点"),
+                    name=name,
                     type=tp.get("type", "function"),
                     description=tp.get("description"),
                 )
                 db.add(point)
                 db.commit()
                 db.refresh(point)
+                existing_point_names.add(name)
                 test_points_in_db.append(point)
+            # 测试点名称 -> 对象映射，供用例按名称匹配挂接
+            test_point_map: dict = {p.name: p for p in test_points_in_db}
 
-            # 用例入库
-            point_index = 0
+            # 用例入库（兜底拦截平台功能；按 test_point 名称匹配挂接测试点，
+            # 匹配不到时挂空(NULL)而非轮询错配，避免污染覆盖率统计）
             for case in result.test_cases:
-                point_id = test_points_in_db[point_index].id if test_points_in_db and point_index < len(test_points_in_db) else None
+                if _is_platform_feature(case.get("module"), case.get("title"), case.get("test_point")):
+                    continue
+                title = str(case.get("title") or "").strip()
+                # 标题已在项目内存在（含本批已生成）则跳过，避免重复
+                if title and title in existing_case_titles:
+                    continue
+                point = _match_test_point(test_point_map, str(case.get("test_point") or "").strip())
+                point_id = point.id if point else None
                 saved = save_generated_case(db, task.project_id, case, point_id, user_id)
+                if title:
+                    existing_case_titles.add(title)
                 generated_cases.append(
                     {"case_id": saved.id, "title": saved.title, "priority": saved.priority}
                 )
                 total_case += 1
-                point_index += 1
 
         # 聚合评审汇总（FR-5.2 评审结果展示）
         review_summary: dict = {
@@ -217,8 +288,6 @@ def list_tasks(
     page_size: int,
 ) -> tuple[list[GenerationTask], int]:
     """分页查询任务历史；user_id 为空表示全部（管理员）"""
-    from sqlalchemy import select
-
     stmt = select(GenerationTask)
     if user_id is not None:
         stmt = stmt.where(GenerationTask.created_by == user_id)

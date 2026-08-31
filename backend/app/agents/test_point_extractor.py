@@ -11,7 +11,7 @@ TEST_POINT_EXTRACT_PROMPT = """你是一名资深的嵌入式软件测试设计�
 要求：
 1. 每行输出一个测试点，格式严格为（用 | 分隔，共 3 列）：
    测试点名称|测试点类型|测试点描述
-   例如：文档上传解析正常流程|功能|验证支持PDF文档上传并正确解析
+   例如：设备配网正常流程|功能|验证设备配网全流程正常完成并成功上线
 2. 测试点类型取值（必须使用下列英文值）: function / boundary / exception / performance / security / implicit
    - function(功能)：正常业务流程验证
    - boundary(边界)：输入边界值、临界状态、容量上限
@@ -25,6 +25,7 @@ TEST_POINT_EXTRACT_PROMPT = """你是一名资深的嵌入式软件测试设计�
 6. 对状态类、流程类需求（如注册、提交、审批、导入导出、上传下载、重置等），必须额外提取隐式场景测试点(implicit)，验证默认值/空数据/重复操作/中断恢复等隐含行为
 7. 极其重要：测试点总数不得少于需求数量的 2 倍，每个需求至少对应 2 个测试点，不要遗漏任何需求
 8. 不要输出任何其他文字（不要标题、不要解释、不要 markdown 代码块），只输出上述格式的文本行
+9. 极其重要：上述示例仅用于说明输出格式，严禁照抄示例内容；测试点必须严格来源于需求清单，严禁输出与需求无关的功能（尤其严禁输出平台自身功能，如需求管理、文档解析、登录注册等）
 
 需求清单：
 {requirements}
@@ -109,7 +110,8 @@ class TestPointExtractorAgent(BaseAgent):
         try:
             text = self.llm.chat(prompt, system=self.system_prompt, temperature=temperature)
             return parse_test_points_text(text)
-        except Exception:
+        except Exception as e:
+            logger.error("[test_point_extractor] LLM 调用失败: %s", e)
             return []
 
     @staticmethod

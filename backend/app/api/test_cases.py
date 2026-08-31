@@ -29,15 +29,31 @@ def list_cases(
     status: str | None = Query(None),
     source: str | None = Query(None),
     keyword: str | None = Query(None),
+    module: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
+    ids_only: bool = Query(False),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if ids_only:
+        # 跨页全选：返回当前查询条件下全部用例的 (id, source)，不分页
+        items = test_case_service.list_case_ids(db, project_id, priority, status, source, keyword, module)
+        return ok({"items": [{"id": i, "source": s} for i, s in items], "total": len(items)})
     cases, total = test_case_service.list_cases(
-        db, page, page_size, project_id, priority, status, source, keyword
+        db, page, page_size, project_id, priority, status, source, keyword, module
     )
     return ok(PageData(list=[TestCaseOut.model_validate(c) for c in cases], total=total, page=page, page_size=page_size))
+
+
+@router.get("/modules")
+def list_modules(
+    project_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """返回项目下已有用例的去重模块列表（用于模块筛选/编辑下拉）"""
+    return ok({"modules": test_case_service.list_modules(db, project_id)})
 
 
 @router.post("")

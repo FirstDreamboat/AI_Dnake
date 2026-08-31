@@ -36,6 +36,9 @@ backup_*.sql
 tmp_*.py
 tmp_*.txt
 
+# ===== 生成的测试用例导出文件 =====
+test_cases_*.xlsx
+
 # ===== IDE / 系统 =====
 .idea/
 .vscode/
