@@ -10,6 +10,7 @@ from app.models.sys_config import SysConfig
 from app.models.test_case import TestCase, TestCaseVersion
 from app.models.test_point import TestPoint
 from app.models.test_script import TestScript
+from app.models.ui_review_report import UIReviewReport
 from app.models.user import User
 from app.models.user_permission import UserPermission
 
@@ -28,5 +29,6 @@ __all__ = [
     "SysConfig",
     "TestScript",
     "ScriptTemplate",
+    "UIReviewReport",
     "OperationLog",
 ]

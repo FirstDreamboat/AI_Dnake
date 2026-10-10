@@ -1,9 +1,9 @@
-# 狄耐克AI驱动嵌入式测试用例自动生成平台 —— API接口设计文档
+# 狄耐克AI驱动的研发质量前置平台 —— API接口设计文档
 
 | 文档信息 | 内容 |
 |---|---|
 | 文档名称 | API接口设计文档 |
-| 项目名称 | 狄耐克AI驱动嵌入式测试用例自动生成平台 |
+| 项目名称 | 狄耐克AI驱动的研发质量前置平台 |
 | 文档版本 | V1.0 |
 | 编写日期 | 2026-08-12 |
 | 文档状态 | 初稿 |
@@ -365,6 +365,7 @@
   "document_id": 3,
   "name": "离线状态下门禁卡本地鉴权",
   "type": "exception",
+  "technique": "error_guessing",
   "description": "设备离线时验证本地黑名单鉴权能力"
 }
 ```
@@ -375,6 +376,7 @@
 | document_id | int | 否 | 所属需求文档 |
 | name | string | 是 | 测试点名称 |
 | type | string | 是 | function/boundary/exception/performance/security/implicit |
+| technique | string | 否 | 设计技术：equivalence/boundary/decision_table/state_transition/scenario/orthogonal/error_guessing/none，默认 none（与测试点提取器 ALL_TECHNIQUES 对齐） |
 | description | string | 否 | 描述 |
 
 ### 6.2 测试点列表
@@ -388,6 +390,7 @@
 | document_id | int | 所属文档 |
 | project_id | int | 所属项目 |
 | type | string | 测试点类型（function/boundary/exception/performance/security/implicit） |
+| technique | string | 设计技术（equivalence/boundary/decision_table/state_transition/scenario/orthogonal/error_guessing/none） |
 
 ### 6.3 测试点详情
 
@@ -396,7 +399,7 @@
 ### 6.4 更新测试点
 
 - **PUT** `/test-points/{point_id}`
-- **说明**：人工修改测试点名称、类型、描述。
+- **说明**：人工修改测试点名称、类型、设计技术、描述。
 
 ### 6.5 删除测试点
 
@@ -687,6 +690,8 @@ data: {"task_id": 1001, "total_case": 56}
 | pytest | 单元测试脚本 | pytest + pytest-mock（mock 硬件交互） |
 | api | 接口自动化脚本 | pytest + requests |
 | ui | UI 自动化脚本 | pytest + playwright |
+| android | 安卓 APP UI 自动化 | pytest + Appium + uiautomator2 |
+| ios | iOS APP UI 自动化 | pytest + Appium + XCUITest（需 Mac） |
 | custom | 自定义脚本 | 按 custom_prompt 生成 |
 
 - **响应**：返回 `content`（完整 Python 源码）、`suggest_name`、`framework`、`description` 等，不落库。
@@ -737,7 +742,7 @@ data: {"task_id": 1001, "total_case": 56}
 ### 9.7 下载脚本
 
 - **GET** `/scripts/{script_id}/download`
-- **说明**：以 `.py` 文件形式下载脚本源码。
+- **说明**：以 `.py` 文件形式下载脚本源码。响应头 `Content-Disposition` 按 RFC 5987 处理中文文件名：`filename*=UTF-8''<百分号编码>` 传输真实中文名，同时保留 ASCII 兜底名，避免脚本名含中文时下载崩溃。
 
 ---
 
@@ -1044,7 +1049,55 @@ data: {"task_id": 1001, "total_case": 56}
 
 ---
 
-## 17. 文件管理接口（/files）
+## 17. 需求体检接口（/req-review）
+
+> 研发质量前置出口：上传 PRD 即出体检报告（评分 + 问题清单），面向产品/研发在提测前发现需求缺陷。报告落库，支持随时查看与导出 PDF。
+
+### 17.1 上传并体检
+
+- **POST** `/req-review/analyze`
+- **请求**：multipart 文件（md/txt/docx/pdf/图片）
+- **说明**：解析 → 需求提取 → 测试点提取 → 质量评审，报告自动落库后返回（含 id）。耗时约 1-2 分钟。
+- **响应**：完整报告（score/summary/metrics/issues/highlights + id/filename/created_at）
+
+### 17.2 历史报告列表
+
+- **GET** `/req-review/reports`
+- **查询参数**：page / page_size
+- **说明**：返回摘要列表（id/filename/score/summary 摘要/created_at）
+
+### 17.3 报告详情
+
+- **GET** `/req-review/reports/{report_id}`
+- **说明**：返回完整报告（含全部问题清单与亮点）。
+
+### 17.4 下载报告 PDF
+
+- **GET** `/req-review/reports/{report_id}/download`
+- **说明**：reportlab 生成 PDF（中文字体），`Content-Disposition` 按 RFC 5987 处理中文文件名。
+
+### 17.5 报告可见性规则（当前实现 + 规划方案）
+
+**当前实现（方案 A：账号隔离 + 管理员全局）：**
+
+| 操作 | 普通账号 | 管理员 |
+|---|---|---|
+| 历史列表 | 仅本人报告 | 全部用户报告 |
+| 详情 / PDF 下载 | 仅本人报告 | 任意报告 |
+
+- 生成即归属：报告落库时记录 `user_id`，接口层（非前端）强制校验归属，越权访问返回 404。
+- 设计理由：报告视为个人工作产出，按账号隔离保证数据安全。
+
+**规划中可选方案（暂未实现，按需启动）：**
+
+| 方案 | 规则 | 适用场景 | 改动量 |
+|---|---|---|---|
+| B 团队可见 | manager 及以上可查看团队报告 | 项目经理统览团队体检情况 | 小（暂无部门维度，manager 可见范围=全部，与 admin 重合） |
+| C 项目级共享 | 报告挂 `project_id`，项目成员可见 | 团队围绕同一份 PRD 协作 | 中（表加字段 + 接口过滤 + 前端筛选；协作叙事最顺） |
+
+> 落地提示：B/C 均只需在 `ui_review_report` 增加 `project_id` 字段并调整列表过滤逻辑；对外口径："当前按账号隔离保证数据安全，项目级共享已在规划中"。
+
+## 18. 文件管理接口（/files）
 
 > ⏳ 规划中（未实现）。当前文件上传/下载分别集成于对应业务模块：
 > - 需求文档上传：`POST /documents/upload`、链接解析 `POST /documents/parse-url`
@@ -1066,7 +1119,7 @@ data: {"task_id": 1001, "total_case": 56}
 
 ---
 
-## 18. 接口调用时序
+## 19. 接口调用时序
 
 ### 18.1 完整生成流程时序
 
@@ -1094,7 +1147,7 @@ data: {"task_id": 1001, "total_case": 56}
 
 ---
 
-## 19. 接口安全设计
+## 20. 接口安全设计
 
 | 项目 | 方案 |
 |---|---|
@@ -1109,7 +1162,7 @@ data: {"task_id": 1001, "total_case": 56}
 
 ---
 
-## 20. 接口清单汇总
+## 21. 接口清单汇总
 
 | 模块 | 方法 | 路径 | 说明 |
 |---|---|---|---|
@@ -1160,6 +1213,10 @@ data: {"task_id": 1001, "total_case": 56}
 | 模板 | GET/POST | /script-templates | 模板列表/创建 |
 | 模板 | GET | /script-templates/all | 全部启用模板 |
 | 模板 | PUT/DELETE | /script-templates/{id} | 更新/删除模板 |
+| 需求体检 | POST | /req-review/analyze | 上传 PRD 体检并落库 |
+| 需求体检 | GET | /req-review/reports | 历史报告列表 |
+| 需求体检 | GET | /req-review/reports/{id} | 报告详情 |
+| 需求体检 | GET | /req-review/reports/{id}/download | 下载报告 PDF |
 | 知识库 | GET/POST | /knowledge/docs | 知识库列表/上传 |
 | 知识库 | GET/DELETE | /knowledge/docs/{id} | 详情/删除 |
 | 知识库 | GET | /knowledge/docs/{id}/versions | 版本历史 |
@@ -1187,7 +1244,7 @@ data: {"task_id": 1001, "total_case": 56}
 
 ---
 
-## 21. 示例：完整调用流程
+## 22. 示例：完整调用流程
 
 **场景：工程师生成楼宇对讲系统测试用例**
 

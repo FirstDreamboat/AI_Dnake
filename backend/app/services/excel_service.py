@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import BusinessError
 from app.models.test_case import TestCase
-from app.services.test_case_service import _gen_case_no
+from app.services.test_case_service import _insert_case
 
 # 用例导入字段映射：Excel列名 -> 模型字段
 FIELD_MAP = {
@@ -41,21 +41,19 @@ def import_cases(db: Session, file, project_id: int, user_id: int) -> int:
             continue
         steps_text = str(row.get("测试步骤") or row.get("steps") or "")
         steps = _parse_steps(steps_text)
-        case = TestCase(
-            case_no=_gen_case_no(db, project_id),
-            project_id=project_id,
+        _insert_case(
+            db,
+            project_id,
             title=title,
             preconditions=str(row.get("前置条件") or row.get("preconditions") or "").strip() or None,
             steps=steps,
             expected_result=str(row.get("预期结果") or row.get("expected_result") or "").strip(),
-            priority=str(row.get("优先级") or row.get("priority") or "P2").strip().upper(),
+            priority=_normalize_priority(row.get("优先级") or row.get("priority")),
             test_type=str(row.get("测试类型") or row.get("test_type") or "功能测试").strip(),
             source="manual",
             created_by=user_id,
         )
-        db.add(case)
         count += 1
-    db.commit()
     return count
 
 
@@ -76,12 +74,50 @@ def _parse_steps(text: str) -> list[dict]:
     return steps
 
 
-# 长文本列：固定更宽列宽并开启自动换行
-_WIDE_COLUMNS = {"前置条件", "测试步骤", "预期结果"}
-_WIDE_COLUMN_WIDTH = 45
-_MAX_NARROW_COLUMN_WIDTH = 32
-_MIN_COLUMN_WIDTH = 8
+# ============ 标准测试用例表格样式 ============
+# 列定义: (列名, 固定列宽) —— 列宽按内容与可读性预设
+_EXCEL_COLUMNS = [
+    ("序号", 8),
+    ("用例编号", 16),
+    ("测试项", 34),
+    ("测试模块", 20),
+    ("前置条件", 42),
+    ("测试步骤", 60),
+    ("预期结果", 42),
+    ("优先级", 12),
+    ("测试类型", 14),
+    ("用例来源", 12),
+    ("用例状态", 12),
+    ("核查备注", 44),
+]
+_HEADER_FILL = "4472C4"
+_HEADER_ROW_HEIGHT = 24
 _LINE_HEIGHT = 15.5  # 单行行高估算值（磅）
+_MIN_ROW_HEIGHT = 22
+
+# 用例等级顺序：规范四级 L1~L4 在前，历史 P0~P4 在后（导出/分组排序共用）
+_PRIORITY_ORDER = ["L1", "L2", "L3", "L4", "P0", "P1", "P2", "P3", "P4"]
+
+# 等级配色: 等级 -> (字体色, 填充色)
+_PRIORITY_COLORS = {
+    # 《测试用例等级定义规范》四级
+    "L1": ("9C0006", "FFC7CE"),
+    "L2": ("974706", "FCE4D6"),
+    "L3": ("7F6000", "FFF2CC"),
+    "L4": ("404040", "EDEDED"),
+    # 历史 P0~P4（存量数据继续着色）
+    "P0": ("9C0006", "FFC7CE"),
+    "P1": ("974706", "FCE4D6"),
+    "P2": ("7F6000", "FFF2CC"),
+    "P3": ("375623", "E2EFDA"),
+    "P4": ("404040", "EDEDED"),
+}
+
+
+def _normalize_priority(value) -> str:
+    """等级归一化：规范四级 L1~L4 优先，历史 P0~P4 兼容，未知/空值兜底 L2"""
+    prio = str(value or "").strip().upper()
+    return prio if prio in _PRIORITY_ORDER else "L2"
 
 
 def _display_width(text: str) -> int:
@@ -89,79 +125,92 @@ def _display_width(text: str) -> int:
     return sum(2 if ord(ch) > 127 else 1 for ch in text)
 
 
+def _calc_display_lines(text, width: int) -> int:
+    """按指定列宽估算文本自动换行后的显示行数"""
+    text = str(text or "")
+    if not text:
+        return 1
+    usable = max(1, width - 2)
+    lines = 0
+    for line in text.splitlines():
+        lines += max(1, (_display_width(line) + usable - 1) // usable)
+    return max(1, lines)
+
+
 def _apply_sheet_style(ws, columns: list[str]) -> None:
-    """为导出的工作表应用样式：表头加粗着色、全表边框、自动换行、列宽与行高"""
-    # 表头样式
-    header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill("solid", fgColor="4472C4")
+    """标准测试用例表格样式：表头加粗着色、全表边框、自动换行、固定列宽、按内容自适应行高、优先级着色、冻结表头"""
+    # 1) 表头：蓝底白字加粗居中，固定行高
+    ws.row_dimensions[1].height = _HEADER_ROW_HEIGHT
     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     for cell in ws[1]:
-        cell.font = header_font
-        cell.fill = header_fill
+        cell.font = Font(bold=True, color="FFFFFF", size=11)
+        cell.fill = PatternFill("solid", fgColor=_HEADER_FILL)
         cell.alignment = header_alignment
 
-    thin = Side(style="thin", color="BFBFBF")
+    # 2) 数据区：细边框 + 自动换行垂直居中
+    thin = Side(style="thin", color="B4C6E7")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    data_alignment = Alignment(vertical="top", wrap_text=True)
-
-    for row in ws.iter_rows():
+    data_alignment = Alignment(vertical="center", wrap_text=True)
+    col_index = {name: i for i, name in enumerate(columns, start=1)}
+    prio_col = col_index.get("优先级")
+    for row in ws.iter_rows(min_row=2):
         for cell in row:
             cell.border = border
-            if cell.row > 1:
-                cell.alignment = data_alignment
+            cell.alignment = data_alignment
+            # 优先级列按 P0~P4 着色
+            if prio_col and cell.column == prio_col:
+                prio = str(cell.value or "").strip().upper()
+                if prio in _PRIORITY_COLORS:
+                    font_color, fill_color = _PRIORITY_COLORS[prio]
+                    cell.font = Font(bold=True, color=font_color)
+                    cell.fill = PatternFill("solid", fgColor=fill_color)
 
-    # 列宽：长文本列固定较宽，其余按内容自适应
-    wide_indexes = []
+    # 3) 列宽：按标准列定义固定
+    width_map = {name: width for name, width in _EXCEL_COLUMNS}
     for idx, name in enumerate(columns, start=1):
-        letter = get_column_letter(idx)
-        if name in _WIDE_COLUMNS:
-            wide_indexes.append(idx)
-            ws.column_dimensions[letter].width = _WIDE_COLUMN_WIDTH
-        else:
-            max_len = _MIN_COLUMN_WIDTH
-            for cell in ws[letter]:
-                if cell.value is not None:
-                    max_len = max(max_len, _display_width(str(cell.value)))
-            ws.column_dimensions[letter].width = min(max_len + 3, _MAX_NARROW_COLUMN_WIDTH)
+        ws.column_dimensions[get_column_letter(idx)].width = width_map.get(name, 16)
 
-    # 冻结表头，滚动时始终可见
-    ws.freeze_panes = "A2"
-
-    # 行高估算：长文本列按换行后行数计算，保证内容完整显示
+    # 4) 行高：遍历所有列取最大换行行数，保证任何列内容都不被截断
     for row in ws.iter_rows(min_row=2):
         max_lines = 1
-        for idx in wide_indexes:
-            cell = row[idx - 1]
+        for cell in row:
             if cell.value is None:
                 continue
-            lines = 0
-            for line in str(cell.value).splitlines():
-                # 每行按列宽估算需占用的显示行数
-                lines += max(1, (_display_width(line.strip()) + _WIDE_COLUMN_WIDTH - 1) // _WIDE_COLUMN_WIDTH)
-            max_lines = max(max_lines, lines)
-        ws.row_dimensions[row[0].row].height = max(20, max_lines * _LINE_HEIGHT + 4)
+            width = width_map.get(columns[cell.column - 1], 16)
+            max_lines = max(max_lines, _calc_display_lines(cell.value, width))
+        ws.row_dimensions[row[0].row].height = max(_MIN_ROW_HEIGHT, max_lines * _LINE_HEIGHT + 4)
+
+    # 5) 冻结表头（滚动可见）+ 自动筛选
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
 
 
 def export_cases(db: Session, case_ids: list[int]) -> bytes:
-    """导出用例为 Excel（带自动换行、列宽、边框等样式），返回字节流"""
+    """导出用例为标准测试用例表格 Excel（自动换行、自适应行高、固定列宽、优先级着色、冻结表头）"""
     cases = db.query(TestCase).filter(TestCase.id.in_(case_ids)).all()
     rows = []
-    for c in cases:
-        steps_text = "\n".join(
-            f"{s.get('step_no', i + 1)}. {s.get('action', '')}" for i, s in enumerate(c.steps or [])
-        )
+    for i, c in enumerate(cases, start=1):
+        # 测试步骤：1. xxx（预期：yyy）每条占一行
+        step_lines = []
+        for s in c.steps or []:
+            no = s.get("step_no", len(step_lines) + 1)
+            action = str(s.get("action", "")).strip()
+            exp = str(s.get("expected") or "").strip()
+            step_lines.append(f"{no}. {action}" + (f"（预期：{exp}）" if exp else ""))
         rows.append(
             {
+                "序号": i,
                 "用例编号": c.case_no,
-                "用例标题": c.title,
-                "模块": c.module or "",
+                "测试项": c.title,
+                "测试模块": c.module or "",
                 "前置条件": c.preconditions or "",
-                "测试步骤": steps_text,
+                "测试步骤": "\n".join(step_lines),
                 "预期结果": c.expected_result,
                 "优先级": c.priority,
                 "测试类型": c.test_type,
                 "用例来源": c.source,
                 "用例状态": c.status,
+                "核查备注": c.ai_remark or "",
             }
         )
     df = pd.DataFrame(rows)
@@ -214,6 +263,7 @@ def export_cases_json(db: Session, case_ids: list[int]) -> str:
             "id": c.id,
             "case_no": c.case_no,
             "title": c.title,
+            "module": c.module,
             "preconditions": c.preconditions,
             "steps": c.steps or [],
             "expected_result": c.expected_result,
@@ -234,9 +284,10 @@ def export_cases_xmind(db: Session, case_ids: list[int]) -> bytes:
     """
     cases = _collect_cases(db, case_ids)
     grouped: dict[str, list] = {}
-    order = ["P0", "P1", "P2", "P3", "P4"]
     for c in cases:
-        grouped.setdefault(c.priority, []).append(c)
+        grouped.setdefault(_normalize_priority(c.priority), []).append(c)
+    # 只输出实际存在的等级，避免新增等级（L1~L4）被固定枚举丢弃
+    order = [p for p in _PRIORITY_ORDER if p in grouped]
 
     def _topic(title: str, children: list | None = None) -> dict:
         topic = {"id": str(uuid.uuid4()).replace("-", ""), "title": title}

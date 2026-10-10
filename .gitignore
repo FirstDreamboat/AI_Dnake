@@ -47,3 +47,15 @@ Thumbs.db
 
 # ===== 日志 =====
 *.log
+
+# ===== 业务资料与本地杂项（不入库） =====
+# 海外项目/：公司真实需求文档 + 22.9MB Axure 源文件
+海外项目/
+# 公司方案书 / 参赛文档
+*.docx
+# 业务测试数据 xlsx
+登录注册.xlsx
+_style_check.xlsx
+# 含本机数据库密码的临时脚本
+check_db_columns.py
+backend/_check_priority.py

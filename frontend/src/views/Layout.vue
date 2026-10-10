@@ -3,7 +3,7 @@
     <el-aside width="220px" class="aside">
       <div class="logo">
         <el-icon :size="22" color="#409EFF"><Cpu /></el-icon>
-        <span>AI用例生成平台</span>
+        <span>研发质量前置平台</span>
       </div>
       <el-menu :default-active="route.path" router background-color="#001529" text-color="#b7c3d9" active-text-color="#409EFF">
         <el-menu-item v-for="item in visibleMenus" :key="item.path" :index="item.path">
@@ -40,7 +40,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { computed } from 'vue'
-import { Odometer, Folder, MagicStick, Collection, Document, Setting, User, TrendCharts, Files, Memo } from '@element-plus/icons-vue'
+import { Aim, Odometer, Folder, MagicStick, Collection, Document, Setting, User, TrendCharts, Files, Memo } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -52,11 +52,12 @@ const roleLabel = computed(() => {
 })
 
 const menus = [
-  { path: '/dashboard', title: '工作台', icon: Odometer, roles: ['admin', 'manager', 'engineer'] },
-  { path: '/projects', title: '项目管理', icon: Folder, roles: ['admin', 'manager', 'engineer'] },
-  { path: '/generate', title: 'AI 用例生成', icon: MagicStick, roles: ['admin', 'manager', 'engineer'] },
-  { path: '/knowledge', title: '知识库', icon: Collection, roles: ['admin', 'manager', 'engineer'] },
-  { path: '/scripts', title: '脚本管理', icon: Document, roles: ['admin', 'manager', 'engineer'] },
+  { path: '/dashboard', title: '工作台', icon: Odometer, roles: ['admin', 'manager', 'engineer', 'product', 'developer'] },
+  { path: '/projects', title: '项目管理', icon: Folder, roles: ['admin', 'manager', 'engineer', 'product', 'developer'] },
+  { path: '/generate', title: 'AI 用例生成', icon: MagicStick, roles: ['admin', 'manager', 'engineer', 'product', 'developer'] },
+  { path: '/req-review', title: '需求体检', icon: Aim, roles: ['admin', 'manager', 'engineer', 'product', 'developer'] },
+  { path: '/knowledge', title: '知识库', icon: Collection, roles: ['admin', 'manager', 'engineer', 'product', 'developer'] },
+  { path: '/scripts', title: '脚本管理', icon: Document, roles: ['admin', 'manager', 'engineer', 'developer'] },
   { path: '/script-templates', title: '脚本模板', icon: Files, roles: ['admin', 'manager'] },
   { path: '/statistics', title: '统计报表', icon: TrendCharts, roles: ['admin', 'manager'] },
   { path: '/logs', title: '操作日志', icon: Memo, roles: ['admin', 'manager'] },

@@ -16,7 +16,7 @@ class User(Base):
     real_name: Mapped[str | None] = mapped_column(String(50))
     email: Mapped[str | None] = mapped_column(String(100))
     phone: Mapped[str | None] = mapped_column(String(20))
-    role: Mapped[str] = mapped_column(Enum("admin", "manager", "engineer"), default="engineer", nullable=False)
+    role: Mapped[str] = mapped_column(Enum("admin", "manager", "engineer", "product", "developer"), default="engineer", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # 是否需在下一次登录后强制修改密码（新增成员/重置密码时置为 True，改密成功后清除）
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

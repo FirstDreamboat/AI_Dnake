@@ -21,6 +21,11 @@
             <el-option v-for="(t, k) in typeMap" :key="k" :label="t" :value="k" />
           </el-select>
         </el-form-item>
+        <el-form-item label="设计技术">
+          <el-select v-model="filterTechnique" clearable placeholder="全部技术" style="width: 170px" @change="loadData">
+            <el-option v-for="(t, k) in techniqueMap" :key="k" :label="t" :value="k" />
+          </el-select>
+        </el-form-item>
       </el-form>
 
       <el-table :data="list" border stripe v-loading="loading">
@@ -29,6 +34,13 @@
         <el-table-column label="类型" width="120">
           <template #default="{ row }">
             <el-tag :type="typeColor[row.type] || 'info'" size="small">{{ typeMap[row.type] || row.type }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="设计技术" width="140">
+          <template #default="{ row }">
+            <el-tag :type="techniqueColor[row.technique] || 'info'" size="small" effect="plain">
+              {{ techniqueMap[row.technique] || '常规' }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="description" label="说明" min-width="220" show-overflow-tooltip />
@@ -66,6 +78,11 @@
         <el-form-item label="类型" required>
           <el-select v-model="form.type" style="width: 100%">
             <el-option v-for="(t, k) in typeMap" :key="k" :label="t" :value="k" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="设计技术">
+          <el-select v-model="form.technique" style="width: 100%">
+            <el-option v-for="(t, k) in techniqueMap" :key="k" :label="t" :value="k" />
           </el-select>
         </el-form-item>
         <el-form-item label="说明">
@@ -119,6 +136,28 @@ const typeColor: Record<string, string> = {
   implicit: 'info',
 }
 
+// 设计技术（与后端 ALL_TECHNIQUES 对应）：说明该测试点"依据什么方法设计出的"
+const techniqueMap: Record<string, string> = {
+  equivalence: '等价类划分',
+  boundary: '边界值分析',
+  decision_table: '判定表',
+  state_transition: '状态迁移',
+  scenario: '场景法',
+  orthogonal: '正交表/配对',
+  error_guessing: '错误推测',
+  none: '常规',
+}
+const techniqueColor: Record<string, string> = {
+  equivalence: 'success',
+  boundary: 'warning',
+  decision_table: 'primary',
+  state_transition: 'primary',
+  scenario: 'success',
+  orthogonal: 'info',
+  error_guessing: 'danger',
+  none: 'info',
+}
+
 const loading = ref(false)
 const saving = ref(false)
 const list = ref<any[]>([])
@@ -126,11 +165,12 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = 20
 const filterType = ref('')
+const filterTechnique = ref('')
 const docs = ref<any[]>([])
 
 const dialogVisible = ref(false)
 const editing = ref<any>(null)
-const form = reactive({ document_id: 0, name: '', type: 'function', description: '' })
+const form = reactive({ document_id: 0, name: '', type: 'function', technique: 'none', description: '' })
 
 const fmtTime = (t?: string) => (t ? t.replace('T', ' ').slice(0, 19) : '-')
 
@@ -138,7 +178,13 @@ const loadData = async () => {
   loading.value = true
   try {
     const [pointsRes, docsRes] = await Promise.all([
-      testPointApi.list({ project_id: projectId, type: filterType.value || undefined, page: page.value, page_size: pageSize }),
+      testPointApi.list({
+        project_id: projectId,
+        type: filterType.value || undefined,
+        technique: filterTechnique.value || undefined,
+        page: page.value,
+        page_size: pageSize,
+      }),
       documentApi.list({ project_id: projectId, page_size: 200 }),
     ])
     const data = pointsRes?.data ?? pointsRes
@@ -155,13 +201,13 @@ const loadData = async () => {
 
 const openCreate = () => {
   editing.value = null
-  Object.assign(form, { document_id: docs.value[0]?.id ?? 0, name: '', type: 'function', description: '' })
+  Object.assign(form, { document_id: docs.value[0]?.id ?? 0, name: '', type: 'function', technique: 'none', description: '' })
   dialogVisible.value = true
 }
 
 const openEdit = (row: any) => {
   editing.value = row
-  Object.assign(form, { name: row.name, type: row.type, description: row.description || '' })
+  Object.assign(form, { name: row.name, type: row.type, technique: row.technique || 'none', description: row.description || '' })
   dialogVisible.value = true
 }
 
@@ -173,7 +219,7 @@ const handleSave = async () => {
   saving.value = true
   try {
     if (editing.value) {
-      await testPointApi.update(editing.value.id, { name: form.name, type: form.type, description: form.description })
+      await testPointApi.update(editing.value.id, { name: form.name, type: form.type, technique: form.technique, description: form.description })
       ElMessage.success('更新成功')
     } else {
       await testPointApi.create({
@@ -181,6 +227,7 @@ const handleSave = async () => {
         project_id: projectId,
         name: form.name,
         type: form.type,
+        technique: form.technique,
         description: form.description,
       })
       ElMessage.success('创建成功')

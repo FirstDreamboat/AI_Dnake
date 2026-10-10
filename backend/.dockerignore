@@ -7,4 +7,5 @@ data/
 uploads/
 tests/
 *.log
-.env
+# 注意：.env 不排除——模型 API Key（LLM/EMBED/VISION）需要随镜像进入容器；
+# docker-compose 的 environment（DATABASE_URL 等）优先级高于 .env，会正常覆盖本机配置

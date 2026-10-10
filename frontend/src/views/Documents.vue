@@ -145,9 +145,16 @@ const handleImageUpload = async (file: File) => {
 }
 
 const handleParse = async (row: any) => {
-  const res = await documentApi.parse(row.id)
-  ElMessage.success(`解析完成，提取 ${res.chars} 字符`)
-  loadData()
+  try {
+    const res = await documentApi.parse(row.id)
+    ElMessage.success(`解析完成，提取 ${res.chars} 字符`)
+  } catch (e: any) {
+    // 解析含图片视觉识别时最长可达 85s+；若请求异常（超时/断网），
+    // 提示用户并刷新列表查看后端实际状态（后端可能仍在后台完成了解析）
+    ElMessage.error(e?.message || '解析请求异常，请稍后刷新列表查看状态')
+  } finally {
+    loadData()
+  }
 }
 
 const handleParseUrl = async () => {

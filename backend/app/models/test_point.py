@@ -19,6 +19,13 @@ class TestPoint(Base):
         default="function",
         nullable=False,
     )
+    technique: Mapped[str | None] = mapped_column(
+        Enum(
+            "equivalence", "boundary", "decision_table", "state_transition",
+            "scenario", "orthogonal", "error_guessing", "none",
+        ),
+        default="none",
+    )
     description: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 

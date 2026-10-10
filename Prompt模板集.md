@@ -1,9 +1,9 @@
-# 狄耐克AI驱动嵌入式测试用例自动生成平台 —— Prompt模板集
+# 狄耐克AI驱动的研发质量前置平台 —— Prompt模板集
 
 | 文档信息 | 内容 |
 |---|---|
 | 文档名称 | Prompt模板集 |
-| 项目名称 | 狄耐克AI驱动嵌入式测试用例自动生成平台 |
+| 项目名称 | 狄耐克AI驱动的研发质量前置平台 |
 | 文档版本 | V1.0 |
 | 编写日期 | 2026-08-12 |
 | 文档状态 | 初稿 |
@@ -92,6 +92,7 @@
       "id": 1,
       "name": "测试点名称",
       "type": "function | boundary | exception | performance | security | implicit",
+      "technique": "equivalence | boundary | decision_table | state_transition | scenario | orthogonal | error_guessing | none",
       "related_point_id": 关联功能点ID,
       "description": "测试点描述"
     }
@@ -111,7 +112,8 @@
 2. 边界和异常测试点不得遗漏。
 3. 对含状态/流程描述的需求，必须提取隐式场景（implicit）测试点。
 4. 嵌入式产品需考虑：资源受限、通信异常、断电恢复、内存溢出等场景。
-5. 输出必须是合法JSON。
+5. 为每个测试点标注设计技术（technique）：等价类划分/边界值分析/判定表/状态迁移/场景法/正交表/错误推测；边界值类须覆盖上下界、等价类须含有效与无效、判定表须覆盖各组合分支。
+6. 输出必须是合法JSON。
 ```
 
 ---

@@ -13,18 +13,20 @@
       <el-col :span="12">
         <el-card shadow="hover" header="AI 与人工效率对比">
           <el-empty v-if="!efficiencyData" description="暂无生成任务数据，去「AI 用例生成」创建任务" />
-          <div v-else class="eff-row">
-            <div class="eff-item">
-              <div class="eff-num">{{ efficiencyData.ai_total_cases }}</div>
-              <div class="eff-label">AI 生成用例总数</div>
-            </div>
-            <div class="eff-item">
-              <div class="eff-num">{{ efficiencyData.ai_avg_time_minutes }} 分钟</div>
-              <div class="eff-label">AI 平均生成耗时</div>
-            </div>
-            <div class="eff-item">
-              <div class="eff-num">-60%</div>
-              <div class="eff-label">人力投入节省</div>
+          <div v-else>
+            <div class="eff-row">
+              <div class="eff-item">
+                <div class="eff-num">{{ efficiencyData.ai_seconds_per_case ?? '-' }}<span class="eff-unit"> 秒</span></div>
+                <div class="eff-label">AI 每条用例耗时（真实计时）</div>
+              </div>
+              <div class="eff-item">
+                <div class="eff-num">{{ efficiencyData.manual_baseline?.minutes_per_case ?? '-' }}<span class="eff-unit"> 分钟</span></div>
+                <div class="eff-label">人工每条用例耗时（实测标定）</div>
+              </div>
+              <div class="eff-item">
+                <div class="eff-num speedup">{{ efficiencyData.speedup ? efficiencyData.speedup + ' 倍' : '-' }}</div>
+                <div class="eff-label">效率提升</div>
+              </div>
             </div>
           </div>
         </el-card>
@@ -135,5 +137,13 @@ onMounted(async () => {
   background: #f0f2f5;
   padding: 2px 8px;
   border-radius: 4px;
+}
+.eff-unit {
+  font-size: 16px;
+  font-weight: normal;
+  color: #909399;
+}
+.eff-num.speedup {
+  color: #67c23a;
 }
 </style>

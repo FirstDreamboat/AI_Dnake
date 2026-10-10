@@ -23,6 +23,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'projects/:id/test-points', name: 'TestPoints', component: () => import('@/views/TestPoints.vue'), meta: { title: '测试点管理', perm: 'project' } },
       { path: 'projects/:id/cases', name: 'TestCases', component: () => import('@/views/TestCases.vue'), meta: { title: '测试用例', perm: 'project' } },
       { path: 'generate', name: 'Generate', component: () => import('@/views/Generate.vue'), meta: { title: 'AI生成', perm: 'generate' } },
+      { path: 'req-review', name: 'RequirementReview', component: () => import('@/views/RequirementReview.vue'), meta: { title: '需求体检', perm: 'generate' } },
       { path: 'tasks', name: 'Tasks', component: () => import('@/views/Tasks.vue'), meta: { title: '任务历史' } },
       { path: 'knowledge', name: 'Knowledge', component: () => import('@/views/Knowledge.vue'), meta: { title: '知识库', perm: 'knowledge' } },
       { path: 'scripts', name: 'Scripts', component: () => import('@/views/Scripts.vue'), meta: { title: '脚本管理', perm: 'script' } },

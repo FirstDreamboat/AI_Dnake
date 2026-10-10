@@ -125,6 +125,58 @@ def get_config(
     return ok([{"key": c.config_key, "value": c.config_value, "description": c.description} for c in configs])
 
 
+@router.get("/manual-baseline")
+def get_manual_baseline(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_perm("settings")),
+):
+    """读取人工效率基线（未标定时返回默认值：20 条/180 分钟）"""
+    cfg = {
+        c.config_key: c.config_value
+        for c in db.query(SysConfig)
+        .filter(SysConfig.config_key.in_(["manual_cases_per_day", "manual_time_minutes"]))
+        .all()
+    }
+    try:
+        cases = int(cfg.get("manual_cases_per_day") or 20)
+    except ValueError:
+        cases = 20
+    try:
+        minutes = int(cfg.get("manual_time_minutes") or 180)
+    except ValueError:
+        minutes = 180
+    return ok({"avg_cases_per_day": cases, "avg_time_minutes": minutes})
+
+
+class ManualBaselineIn(BaseModel):
+    """人工效率基线（测试部实测标定，用于 AI vs 人工效率对比）"""
+
+    avg_cases_per_day: int = Field(..., ge=1, le=10000, description="人均每日编写用例数")
+    avg_time_minutes: int = Field(..., ge=1, le=100000, description="编写一批用例平均耗时（分钟）")
+
+
+@router.put("/manual-baseline")
+def set_manual_baseline(
+    payload: ManualBaselineIn,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_perm("settings")),
+):
+    """保存人工效率基线（写入 sys_config，供 /stats/efficiency 读取）"""
+    items = {
+        "manual_cases_per_day": (str(payload.avg_cases_per_day), "人工效率基线：人均每日编写用例数（实测标定）"),
+        "manual_time_minutes": (str(payload.avg_time_minutes), "人工效率基线：编写一批用例平均耗时/分钟（实测标定）"),
+    }
+    for key, (value, desc) in items.items():
+        row = db.query(SysConfig).filter(SysConfig.config_key == key).first()
+        if row:
+            row.config_value = value
+            row.description = desc
+        else:
+            db.add(SysConfig(config_key=key, config_value=value, description=desc))
+    db.commit()
+    return ok(message="人工效率基线已保存")
+
+
 @router.get("/agents")
 def get_agents(
     user: User = Depends(get_current_user),

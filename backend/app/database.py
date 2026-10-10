@@ -71,10 +71,50 @@ def _add_missing_columns() -> None:
             tc_columns = {c["name"] for c in inspector.get_columns("test_case")}
             if "feedback" not in tc_columns:
                 conn.execute(text("ALTER TABLE test_case ADD COLUMN feedback VARCHAR(10)"))
+            if "task_id" not in tc_columns:
+                conn.execute(text("ALTER TABLE test_case ADD COLUMN task_id INTEGER"))
+            if "req_ref" not in tc_columns:
+                conn.execute(text("ALTER TABLE test_case ADD COLUMN req_ref TEXT"))
+            if "ai_remark" not in tc_columns:
+                conn.execute(text("ALTER TABLE test_case ADD COLUMN ai_remark TEXT"))
+            if "ai_checked_at" not in tc_columns:
+                conn.execute(text("ALTER TABLE test_case ADD COLUMN ai_checked_at DATETIME"))
+            if "dup_group_no" not in tc_columns:
+                conn.execute(text("ALTER TABLE test_case ADD COLUMN dup_group_no INTEGER"))
+            if "dup_keep_case_id" not in tc_columns:
+                conn.execute(text("ALTER TABLE test_case ADD COLUMN dup_keep_case_id INTEGER"))
         if "knowledge_doc" in tables:
             kd_columns = {c["name"] for c in inspector.get_columns("knowledge_doc")}
             if "product_line" not in kd_columns:
                 conn.execute(text("ALTER TABLE knowledge_doc ADD COLUMN product_line VARCHAR(20)"))
+        # test_script.script_type 枚举扩容：接口层允许 android/ios，
+        # 但早期建表枚举只有 pytest/api/ui/custom，移动端脚本保存会被 MySQL 拒绝而报 500。
+        if "test_script" in tables and not settings.DATABASE_URL.startswith("sqlite"):
+            st = next(
+                (c for c in inspector.get_columns("test_script") if c["name"] == "script_type"),
+                None,
+            )
+            if st and "android" not in str(st.get("type", "")).lower():
+                conn.execute(
+                    text(
+                        "ALTER TABLE test_script MODIFY script_type "
+                        "ENUM('pytest','api','ui','android','ios','custom') NOT NULL DEFAULT 'pytest'"
+                    )
+                )
+        # user.role 枚举扩容：新增产品经理(product)/研发人员(developer)角色，
+        # 配合"需求体检"等出口把平台从测试部扩展到全研发链条。
+        if "user" in tables and not settings.DATABASE_URL.startswith("sqlite"):
+            rcol = next(
+                (c for c in inspector.get_columns("user") if c["name"] == "role"),
+                None,
+            )
+            if rcol and "product" not in str(rcol.get("type", "")).lower():
+                conn.execute(
+                    text(
+                        "ALTER TABLE user MODIFY role "
+                        "ENUM('admin','manager','engineer','product','developer') NOT NULL DEFAULT 'engineer'"
+                    )
+                )
 
 
 def _backfill_default_permissions() -> None:

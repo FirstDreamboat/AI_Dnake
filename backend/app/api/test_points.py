@@ -21,6 +21,7 @@ def list_test_points(
     document_id: int | None = Query(None),
     project_id: int | None = Query(None),
     type: str | None = Query(None),
+    technique: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -33,6 +34,8 @@ def list_test_points(
         stmt = stmt.where(TestPoint.project_id == project_id)
     if type:
         stmt = stmt.where(TestPoint.type == type)
+    if technique:
+        stmt = stmt.where(TestPoint.technique == technique)
     total = len(db.scalars(stmt).all())
     points = db.scalars(stmt.order_by(TestPoint.id).offset((page - 1) * page_size).limit(page_size)).all()
     return ok(PageData(list=[TestPointOut.model_validate(p) for p in points], total=total, page=page, page_size=page_size))

@@ -24,6 +24,10 @@ export const ALL_PERMISSIONS = PERMISSION_CATALOG.map((p) => p.code)
 export const DEFAULT_PERMISSIONS: Record<string, string[]> = {
   manager: ['project', 'generate', 'knowledge', 'script', 'script_template', 'statistics', 'logs'],
   engineer: ['project', 'generate', 'knowledge', 'script'],
+  // 产品经理：需求体检 + 知识库 + 项目查看，不涉及测试脚本
+  product: ['project', 'generate', 'knowledge'],
+  // 研发人员：需求体检 + 提测自带脚本 + 知识库
+  developer: ['project', 'generate', 'knowledge', 'script'],
 }
 
 export function defaultPermissionsFor(role: string): string[] {

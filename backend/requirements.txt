@@ -32,6 +32,9 @@ python-docx==1.1.2
 pandas==2.3.3
 openpyxl==3.1.5
 
+# 需求体检报告 PDF 导出
+reportlab==5.0.1
+
 # 图片验证码
 Pillow==11.1.0
 

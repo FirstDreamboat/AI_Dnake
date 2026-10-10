@@ -1,4 +1,6 @@
 """测试脚本接口"""
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
@@ -16,6 +18,24 @@ from app.schemas.script import (
 from app.services import script_service
 
 router = APIRouter()
+
+
+def _content_disposition(filename: str) -> str:
+    """生成支持中文文件名的 Content-Disposition（RFC 5987）
+
+    HTTP 响应头只能承载 latin-1 字符，直接拼接中文文件名会被 starlette 拒绝并抛
+    UnicodeEncodeError——脚本名含中文时（如"自动化脚本-xxx"）下载必然崩溃。
+    改为 filename*=UTF-8''<percent-encoded> 传输，并保留 ASCII 兜底名。
+    """
+    # 纯中文名整体过滤后会退化成 ".py"（下载产物变成隐藏文件），
+    # 因此保留原扩展名、仅对主干做 ASCII 兜底。
+    if "." in filename:
+        stem, ext = filename.rsplit(".", 1)
+        ascii_stem = stem.encode("ascii", "ignore").decode() or "script"
+        ascii_name = f"{ascii_stem}.{ext}"
+    else:
+        ascii_name = filename.encode("ascii", "ignore").decode() or "script"
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(filename)}'
 
 
 @router.post("/generate")
@@ -112,5 +132,5 @@ def download_script(
     return PlainTextResponse(
         script.content,
         media_type="text/x-python; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _content_disposition(filename)},
     )

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     """全局配置，支持从 .env 文件或环境变量读取"""
 
     # 应用
-    APP_NAME: str = "AI测试用例生成平台"
+    APP_NAME: str = "AI驱动的研发质量前置平台"
     APP_ENV: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = "please-change-me"

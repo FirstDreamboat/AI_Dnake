@@ -10,12 +10,16 @@ from app.database import get_db
 from app.models.document import Document
 from app.models.generation_task import GenerationTask
 from app.models.project import Project
+from app.models.sys_config import SysConfig
 from app.models.test_case import TestCase
 from app.models.user import User
 from app.schemas.common import ok
 from app.services import project_service
 
 router = APIRouter()
+
+# 用例等级全集：规范四级 L1~L4 在前，历史 P0~P4 在后（存量数据仍要能统计到）
+_PRIORITY_LEVELS = ("L1", "L2", "L3", "L4", "P0", "P1", "P2", "P3", "P4")
 
 # 英文/缩写 test_type -> 中文规范名（AI 生成或导入时可能产生英文值，统计时统一展示）
 _TEST_TYPE_MAP = {
@@ -94,7 +98,7 @@ def project_stats(
                 TestCase.project_id == project_id, TestCase.priority == p
             )
         ) or 0
-        for p in ("P0", "P1", "P2", "P3", "P4")
+        for p in _PRIORITY_LEVELS
     }
     return ok(
         {
@@ -135,7 +139,7 @@ def priorities(
     user: User = Depends(require_perm("statistics")),
 ):
     """全局/项目内按优先级分布统计（需 statistics 权限）"""
-    result: dict[str, int] = {p: 0 for p in ("P0", "P1", "P2", "P3", "P4")}
+    result: dict[str, int] = {p: 0 for p in _PRIORITY_LEVELS}
     stmt = select(TestCase.priority, func.count(TestCase.id)).group_by(TestCase.priority)
     if project_id:
         stmt = stmt.where(TestCase.project_id == project_id)
@@ -190,20 +194,72 @@ def efficiency(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """生成效率对比（AI vs 人工，供 POC 验证）"""
+    """生成效率对比（AI vs 人工）
+
+    AI 侧：任务数/用例数/平均耗时均来自 generation_task 真实统计（耗时 = finished_at - started_at）。
+    人工侧：编写耗时平台无法自动统计，基线存 sys_config（manual_cases_per_day / manual_time_minutes），
+    由测试部实测标定，系统设置页可校准。
+    """
     tasks = db.scalars(
         select(GenerationTask).where(GenerationTask.status == "success").order_by(GenerationTask.created_at.desc()).limit(20)
     ).all()
-    total_ai_cases = sum(t.total_case for t in tasks)
+    total_ai_cases = sum(t.total_case or 0 for t in tasks)
+
+    # AI 平均耗时：任务真实计时
+    durations = [
+        (t.finished_at - t.started_at).total_seconds() / 60
+        for t in tasks
+        if t.started_at and t.finished_at and t.finished_at > t.started_at
+    ]
+    ai_avg_time = round(sum(durations) / len(durations), 1) if durations else None
+
+    # 每条用例耗时（口径统一的基础）：有计时任务的总耗时 / 总条数
+    timed_tasks = [
+        t for t in tasks
+        if t.started_at and t.finished_at and t.finished_at > t.started_at
+    ]
+    timed_cases = sum(t.total_case or 0 for t in timed_tasks)
+    total_seconds = sum((t.finished_at - t.started_at).total_seconds() for t in timed_tasks)
+    ai_seconds_per_case = round(total_seconds / timed_cases, 1) if timed_cases else None
+
+    # 人工基线：sys_config 可配置（缺省 20 条 / 180 分钟）
+    cfg = {
+        c.config_key: c.config_value
+        for c in db.query(SysConfig)
+        .filter(SysConfig.config_key.in_(["manual_cases_per_day", "manual_time_minutes"]))
+        .all()
+    }
+    try:
+        manual_cases = int(cfg.get("manual_cases_per_day") or 20)
+    except ValueError:
+        manual_cases = 20
+    try:
+        manual_minutes = int(cfg.get("manual_time_minutes") or 180)
+    except ValueError:
+        manual_minutes = 180
+
     return ok(
         {
             "ai_total_cases": total_ai_cases,
             "ai_tasks": len(tasks),
             "avg_cases_per_task": round(total_ai_cases / len(tasks), 1) if tasks else 0,
-            # 人工基线（POC 时替换为实测数据）
-            "manual_baseline": {"avg_cases_per_day": 20, "avg_time_minutes": 180},
-            "ai_avg_time_minutes": 10,
-            "note": "效率对比数据来自任务统计，POC 阶段需结合实际人工编写耗时验证",
+            "ai_avg_time_minutes": ai_avg_time,
+            "ai_time_source": "real" if durations else "unavailable",
+            "ai_seconds_per_case": ai_seconds_per_case,
+            "timed_cases": timed_cases,
+            "manual_baseline": {
+                "avg_cases_per_day": manual_cases,
+                "avg_time_minutes": manual_minutes,
+                # 每条耗时：按人均日产出折算（180 分钟 ÷ 20 条 ≈ 9 分钟/条）
+                "minutes_per_case": round(manual_minutes / manual_cases, 1) if manual_cases else None,
+                "source": "sys_config",
+            },
+            # 提效倍数：人工每条分钟 × 60 ÷ AI 每条秒
+            "speedup": (
+                round((manual_minutes / manual_cases) * 60 / ai_seconds_per_case)
+                if ai_seconds_per_case and manual_cases else None
+            ),
+            "note": "AI 耗时为任务真实计时统计；人工基线为测试部实测标定值，可在系统设置校准",
         }
     )
 

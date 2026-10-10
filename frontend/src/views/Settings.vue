@@ -78,6 +78,32 @@
       </el-form>
     </el-card>
 
+    <el-card shadow="never" class="mb16">
+      <template #header>
+        <div class="card-header">
+          <span>效率基线标定（AI vs 人工对比依据）</span>
+          <el-button type="primary" size="small" :loading="savingBaseline" @click="saveBaseline">保存基线</el-button>
+        </div>
+      </template>
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="人工编写耗时平台无法自动统计，此处由测试部按同一需求实测标定；AI 侧耗时为生成任务真实计时。工作台与统计页的效率对比基于这两组数据计算。"
+        style="margin-bottom: 12px"
+      />
+      <el-form inline>
+        <el-form-item label="人工人均每日编写用例数">
+          <el-input-number v-model="baseline.avg_cases_per_day" :min="1" :max="10000" />
+          <span class="tip" style="margin-left: 8px">条/人/天</span>
+        </el-form-item>
+        <el-form-item label="人工编写一批用例平均耗时">
+          <el-input-number v-model="baseline.avg_time_minutes" :min="1" :max="100000" />
+          <span class="tip" style="margin-left: 8px">分钟</span>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
     <el-row :gutter="16">
       <el-col :span="12">
         <el-card shadow="never" class="mb16">
@@ -260,9 +286,39 @@ const saveLlmConfig = async () => {
   }
 }
 
+// ===== 效率基线标定 =====
+const baseline = ref({ avg_cases_per_day: 20, avg_time_minutes: 180 })
+const savingBaseline = ref(false)
+
+const loadBaseline = async () => {
+  try {
+    const data = await systemApi.manualBaseline()
+    baseline.value.avg_cases_per_day = data?.avg_cases_per_day ?? 20
+    baseline.value.avg_time_minutes = data?.avg_time_minutes ?? 180
+  } catch {
+    // 保持默认值
+  }
+}
+
+const saveBaseline = async () => {
+  savingBaseline.value = true
+  try {
+    await systemApi.saveManualBaseline({
+      avg_cases_per_day: baseline.value.avg_cases_per_day,
+      avg_time_minutes: baseline.value.avg_time_minutes,
+    })
+    ElMessage.success('人工效率基线已保存')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存基线失败')
+  } finally {
+    savingBaseline.value = false
+  }
+}
+
 onMounted(() => {
   loadHealth()
   loadLlmConfig()
+  loadBaseline()
 })
 </script>
 

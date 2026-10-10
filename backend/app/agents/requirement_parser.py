@@ -31,7 +31,9 @@ REQUIREMENT_PARSE_PROMPT = """你是一名资深的嵌入式软件测试需求�
 5. 需求名称用简洁的动宾短语概括，需求描述说明具体功能/指标/规则
 6. 业务流程：用 > 连接该需求的关键业务步骤（3~8 步），描述其业务流转过程；纯性能/安全类需求可填 -
 7. 不要输出任何其他文字（不要标题、不要解释、不要 markdown 代码块），只输出上述格式的文本行
-8. 极其重要：上述示例仅用于说明输出格式，严禁照抄示例内容；所有需求必须严格基于需求文档，严禁输出与文档内容无关的功能（尤其严禁输出平台自身功能，如需求管理、文档解析、登录注册等）
+8. 极其重要：上述示例仅用于说明输出格式，严禁照抄示例内容；所有需求必须严格基于需求文档，严禁输出与文档内容无关的功能。注意：需求文档中出现的所有业务功能（包括登录注册、第三方登录等）都属于待解析需求，必须输出，不得遗漏
+9. 极其重要——原文保留：被测产品可能是海外版，需求文档中的界面文案（按钮、菜单、字段标签、toast、提示语等）若为英文或其他外文，必须在需求描述与业务流程中【原样保留原文】（如 点击 "Register" 按钮、提示 "The code has been sent"、字段名 "Email"），不要翻译成中文、不要改写、不要省略，以便后续测试设计引用真实界面文案；需求文档以中文书写时正常使用中文
+10. 极其重要——并列登录/接入方式必须逐条拆分、禁止合并：需求文档中若列出多个并列的登录方式、注册方式或第三方接入渠道（如 账号密码登录、手机验证码登录、苹果账户登录、谷歌账户登录、微信/支付宝/信用卡支付 等），【每一种方式都必须单独输出为一行需求】，需求名称须带上该方式名（如 "谷歌账户登录"），严禁合并成一条 "第三方登录" 之类的笼统需求；同类方式即使操作流程相似、按钮名称相近，只要渠道/账户体系不同就是不同需求，不得把后出现的渠道判为前面渠道的重复内容而丢弃
 
 需求文档内容：
 {content}
@@ -188,6 +190,9 @@ class RequirementParserAgent(BaseAgent):
                     "需求解析失败：模型连续两次未返回有效结果，请检查 LLM 服务（Ollama/DeepSeek）是否可用"
                 )
             all_requirements = self._merge_unique(all_requirements, reqs)
+        # 模型每块输出都从 1 编号，跨块 no 会重复；合并完成后统一重新编号，保证全局唯一
+        for i, r in enumerate(all_requirements, start=1):
+            r["no"] = f"REQ-{i:03d}"
         return all_requirements
 
     def _parse_chunk(self, prompt: str, temperature: float | None = None) -> list[dict]:
@@ -201,14 +206,20 @@ class RequirementParserAgent(BaseAgent):
 
     @staticmethod
     def _merge_unique(a: list[dict], b: list[dict]) -> list[dict]:
-        """按需求编号/名称合并去重"""
+        """按需求名称合并去重
+
+        注意：绝不能按 no 去重——分块解析时模型对每块都从 1 重新编号，
+        no 跨块必然冲突，导致块2+ 的需求被误判为"重复"而整体丢弃
+        （曾导致"苹果/谷歌第三方登录""手机验证码登录"等需求全部缺失）。
+        需求名称才是跨块稳定的唯一标识。
+        """
         merged = list(a)
-        seen = {str(r.get("no") or r.get("name") or "").strip() for r in merged}
+        seen = {str(r.get("name") or "").strip() for r in merged if (r.get("name") or "").strip()}
         for r in b:
-            key = str(r.get("no") or r.get("name") or "").strip()
-            if key and key in seen:
-                continue
+            key = str(r.get("name") or "").strip()
             if key:
+                if key in seen:
+                    continue
                 seen.add(key)
             merged.append(r)
         return merged

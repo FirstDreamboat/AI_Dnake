@@ -7,9 +7,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# 系统依赖（Pillow 需要）
+# 系统依赖（Pillow 需要；fonts-noto-cjk 供需求体检 PDF 中文渲染）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

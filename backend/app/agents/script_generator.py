@@ -194,7 +194,7 @@ class ScriptGeneratorAgent(BaseAgent):
             steps_text = "\n".join(step_lines) if step_lines else "    （无具体步骤）"
             blocks.append(
                 f"用例 {i}: {title}\n"
-                f"  优先级: {c.get('priority', '-')} | 类型: {c.get('test_type', '-')}\n"
+                f"  用例等级: {c.get('priority', '-')} | 类型: {c.get('test_type', '-')}\n"
                 f"  前置条件: {pre}\n"
                 f"  测试步骤:\n{steps_text}\n"
                 f"  预期结果: {expected}"

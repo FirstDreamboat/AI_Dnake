@@ -3,7 +3,7 @@ import json
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -12,10 +12,20 @@ from app.models.generation_task import GenerationTask
 from app.models.test_point import TestPoint
 from app.models.user import User
 from app.schemas.common import PageData, ok
-from app.schemas.task import GenerateTaskCreate, GenerateTaskOut
+from app.schemas.task import GeneratePreviewIn, GenerateTaskCreate, GenerateTaskOut
 from app.services import generate_service
 
 router = APIRouter()
+
+
+@router.post("/preview")
+def preview(
+    req: GeneratePreviewIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """生成前用例量预估：优先取该文档历史真实测试点数，无历史时按项目密度粗估"""
+    return ok(generate_service.estimate_cases(db, req.project_id, req.document_ids))
 
 
 @router.get("/tasks")
@@ -117,27 +127,38 @@ def task_coverage(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """覆盖率分析：任务所属项目测试点的覆盖情况"""
+    """覆盖率分析：本次任务产出的用例对项目测试点的覆盖情况
+
+    口径说明：用例侧严格限定为本任务(task_id)产出，测试点侧取项目全部测试点。
+    早期实现把"项目内任意历史用例"都算作覆盖（case_count 还是硬编码的 0/1），
+    导致覆盖率长期虚高到接近 100%、漏测不可见；此处改为按任务分组计数，
+    并给出每个测试点真实的用例条数。
+    """
     task = generate_service.get_task(db, task_id)
     points = db.scalars(
         select(TestPoint).where(TestPoint.project_id == task.project_id)
     ).all()
     from app.models.test_case import TestCase
 
-    covered_ids = set(
-        db.scalars(
-            select(TestCase.test_point_id).where(
-                TestCase.project_id == task.project_id, TestCase.test_point_id.isnot(None)
-            )
-        ).all()
-    )
+    rows = db.execute(
+        select(TestCase.test_point_id, func.count(TestCase.id))
+        .where(
+            TestCase.project_id == task.project_id,
+            TestCase.task_id == task_id,
+            TestCase.test_point_id.isnot(None),
+        )
+        .group_by(TestCase.test_point_id)
+    ).all()
+    case_counts = {r[0]: r[1] for r in rows}
+
     items = [
         {
             "test_point_id": p.id,
             "name": p.name,
             "type": p.type,
-            "covered": p.id in covered_ids,
-            "case_count": 1 if p.id in covered_ids else 0,
+            "technique": p.technique,
+            "covered": case_counts.get(p.id, 0) > 0,
+            "case_count": case_counts.get(p.id, 0),
         }
         for p in points
     ]

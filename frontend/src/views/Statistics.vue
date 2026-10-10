@@ -59,10 +59,10 @@
 
       <!-- 优先级分布 -->
       <el-col :span="12">
-        <el-card shadow="never" header="用例优先级分布">
+        <el-card shadow="never" header="用例等级分布">
           <div v-if="totalPriority === 0" class="empty">暂无数据</div>
           <div v-else class="hbar-group">
-            <div v-for="p in priorityKeys" :key="p" class="hbar-row">
+            <div v-for="p in visiblePriorityKeys" :key="p" class="hbar-row">
               <div class="hbar-label pri-label" :style="{ color: priorityColor[p] }">{{ p }}</div>
               <div class="hbar-track">
                 <div
@@ -249,7 +249,7 @@ const cards = ref([
 ])
 
 const typeRows = ref<any[]>([])
-const priorityData = ref<Record<string, number>>({ P0: 0, P1: 0, P2: 0, P3: 0, P4: 0 })
+const priorityData = ref<Record<string, number>>({ L1: 0, L2: 0, L3: 0, L4: 0, P0: 0, P1: 0, P2: 0, P3: 0, P4: 0 })
 const qualityRows = ref<any[]>([])
 const eff = ref<any>(null)
 const trendDates = ref<string[]>([])
@@ -258,11 +258,18 @@ const trendScripts = ref<number[]>([])
 
 const palette = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#722ED1', '#13C2C2']
 const priorityColor: Record<string, string> = {
+  // 规范等级 L1~L4（《测试用例等级定义规范》）
+  L1: '#F56C6C', L2: '#E6A23C', L3: '#409EFF', L4: '#909399',
+  // 历史等级 P0~P4（存量数据）
   P0: '#F56C6C', P1: '#E6A23C', P2: '#409EFF', P3: '#67C23A', P4: '#909399',
 }
 const sourceLabel: Record<string, string> = { ai: 'AI 生成', manual: '人工录入', ai_reviewed: 'AI 人工评审' }
 const sourceTag: Record<string, string> = { ai: 'primary', manual: 'info', ai_reviewed: 'success' }
-const priorityKeys = ['P0', 'P1', 'P2', 'P3', 'P4']
+const priorityKeys = ['L1', 'L2', 'L3', 'L4', 'P0', 'P1', 'P2', 'P3', 'P4']
+// 规范四级始终展示；历史 P 级只在与存量数据有关时展示，避免图表里挂一排 0
+const visiblePriorityKeys = computed(() =>
+  priorityKeys.filter((k) => k.startsWith('L') || (priorityData.value[k] || 0) > 0),
+)
 
 const maxTypeCount = computed(() => Math.max(...typeRows.value.map((r) => r.count), 1))
 const totalPriority = computed(() => priorityKeys.reduce((s, k) => s + (priorityData.value[k] || 0), 0))
@@ -379,7 +386,7 @@ const loadDistributions = async () => {
   const p = params()
   const [tt, pri] = await Promise.all([statsApi.testTypes(p), statsApi.priorities(p)])
   typeRows.value = tt?.rows ?? []
-  priorityData.value = { P0: 0, P1: 0, P2: 0, P3: 0, P4: 0, ...(pri || {}) }
+  priorityData.value = { L1: 0, L2: 0, L3: 0, L4: 0, P0: 0, P1: 0, P2: 0, P3: 0, P4: 0, ...(pri || {}) }
 }
 
 const loadTrend = async () => {

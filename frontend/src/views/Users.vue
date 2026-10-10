@@ -97,6 +97,8 @@
                 <el-option label="管理员" value="admin" />
                 <el-option label="项目经理" value="manager" />
                 <el-option label="测试工程师" value="engineer" />
+                <el-option label="产品经理" value="product" />
+                <el-option label="研发人员" value="developer" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -204,8 +206,8 @@ const resetTarget = ref<any>(null)
 const newPassword = ref('')
 const resetting = ref(false)
 
-const roleMap: Record<string, string> = { admin: '管理员', manager: '项目经理', engineer: '测试工程师' }
-const roleTypeMap: Record<string, string> = { admin: 'danger', manager: 'warning', engineer: 'primary' }
+const roleMap: Record<string, string> = { admin: '管理员', manager: '项目经理', engineer: '测试工程师', product: '产品经理', developer: '研发人员' }
+const roleTypeMap: Record<string, string> = { admin: 'danger', manager: 'warning', engineer: 'primary', product: 'success', developer: 'info' }
 
 const permLabelMap = computed(() => Object.fromEntries(PERMISSION_CATALOG.map((p) => [p.code, p.label])))
 const permLabel = (code: string) => permLabelMap.value[code] || code

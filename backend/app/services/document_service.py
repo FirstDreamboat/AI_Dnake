@@ -30,14 +30,38 @@ _MD_IMG_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 _HTML_IMG_RE = re.compile(r"<img\b[^>]*?src=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 _MD_IMG_LIMIT = 20  # 单篇 md 最多解析的图片数，避免视觉 API 消耗过大
 _RASTER_FMTS = {"png", "jpg", "jpeg", "gif", "webp", "bmp"}
+_IMG_MAX_SIDE = 1280  # 发送视觉模型前压缩图片最长边(px)，控制推理耗时与 token 消耗
 
 
 def _save_temp_image(data: bytes, fmt: str) -> str | None:
-    """将图片字节写入临时文件，返回路径；不支持的格式返回 None"""
+    """将图片字节写入临时文件，返回路径；不支持的格式返回 None
+
+    保存前用 Pillow 压缩/缩放（最长边 _IMG_MAX_SIDE px）。Qwen3-VL 对高分辨率
+    大图推理很慢（实测 76KB 登录截图 49.6s），压缩到 1280px 内可降到约 5-10s，
+    同时减少 token 消耗；无法用 Pillow 处理时保留原始字节。
+    """
     fmt = (fmt or "png").lower()
     suffix = "." + fmt if fmt in _RASTER_FMTS else ".png"
     if fmt not in _RASTER_FMTS:
         return None
+    try:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(data))
+        img = img.convert("RGB")
+        max_side = max(img.size)
+        if max_side > _IMG_MAX_SIDE:
+            ratio = _IMG_MAX_SIDE / max_side
+            img = img.resize(
+                (max(1, int(img.width * ratio)), max(1, int(img.height * ratio))),
+                Image.LANCZOS,
+            )
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=88)
+        data = buf.getvalue()
+        suffix = ".jpg"
+    except Exception:  # noqa: BLE001 - 非位图/损坏图片保留原始字节
+        pass
     fd, path = tempfile.mkstemp(prefix="mdimg_", suffix=suffix)
     with os.fdopen(fd, "wb") as f:
         f.write(data)
@@ -65,7 +89,7 @@ def _resolve_md_image(ref: str, base_dir: Path) -> tuple[str | None, bool]:
         return (path, True) if path else (None, False)
     if ref.startswith(("http://", "https://")):
         try:
-            resp = httpx.get(ref, timeout=20, follow_redirects=True)
+            resp = httpx.get(ref, timeout=12, follow_redirects=True)
             resp.raise_for_status()
         except Exception:
             return None, False
@@ -84,7 +108,9 @@ def _describe_one_md_image(ref: str, base_dir: Path, llm_service) -> str:
     if not image_path:
         return ""
     try:
-        return llm_service.describe_image(image_path) or ""
+        # 单图预算 75s（硅基流动 Qwen3-VL-32B 实测响应 30-60s，波动较大），
+        # 超时放弃该图避免拖垮整批任务
+        return llm_service.describe_image(image_path, timeout=75) or ""
     except Exception:
         return ""
     finally:
@@ -110,15 +136,61 @@ def _extract_md_images(text: str, base_dir: Path) -> str:
     if not settings.VISION_ENABLED or not llm_service.vision_health():
         return text
 
+    # 1. 收集全部图片引用（去重，最多 _MD_IMG_LIMIT 张）
+    refs: list[str] = []
+    seen: set[str] = set()
+
+    def _collect_md(m: re.Match) -> str:
+        ref = (m.group(2) or "").strip().split(" ", 1)[0].strip()
+        if ref and ref not in seen:
+            seen.add(ref)
+            refs.append(ref)
+        return m.group(0)
+
+    def _collect_html(m: re.Match) -> str:
+        ref = m.group(1).strip()
+        if ref and ref not in seen:
+            seen.add(ref)
+            refs.append(ref)
+        return m.group(0)
+
+    _MD_IMG_RE.sub(_collect_md, text)
+    _HTML_IMG_RE.sub(_collect_html, text)
+    refs = refs[:_MD_IMG_LIMIT]
+
+    # 2. 并行描述图片：单图超时 75s，整体最多等 85s。超时未返回的线程不等待，
+    #    直接放弃该图（保留原引用），避免卡住的网络请求（DNS/连接/TLS 挂起等
+    #    httpx timeout 无法中断的情况）拖垮整篇文档解析。
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     cache: dict[str, str] = {}
+    if refs:
+        ex = ThreadPoolExecutor(max_workers=min(4, len(refs)))
+        try:
+            futures = {ex.submit(_describe_one_md_image, ref, base_dir, llm_service): ref for ref in refs}
+            try:
+                for fut in as_completed(futures, timeout=85):
+                    ref = futures[fut]
+                    try:
+                        cache[ref] = fut.result()
+                    except Exception:  # noqa: BLE001
+                        cache[ref] = ""
+            except TimeoutError:
+                pass
+            # 超时/未返回的引用兜底为空，保留原图引用不丢失
+            for ref in refs:
+                cache.setdefault(ref, "")
+        finally:
+            # 关键：wait=False + cancel_futures，不等待卡住的 worker 线程
+            ex.shutdown(wait=False, cancel_futures=True)
+
+    # 3. 用描述文本替换图片引用
     count = {"n": 0}
 
     def _repl(m: re.Match, ref: str, alt: str) -> str:
         if count["n"] >= _MD_IMG_LIMIT:
             return m.group(0)
-        if ref not in cache:
-            cache[ref] = _describe_one_md_image(ref, base_dir, llm_service)
-        desc = cache[ref]
+        desc = cache.get(ref, "")
         if not desc:
             return m.group(0)
         count["n"] += 1

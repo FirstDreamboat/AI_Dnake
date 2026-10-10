@@ -2,8 +2,8 @@
   <div class="login-container">
     <div class="login-card">
       <div class="login-header">
-        <h1>AI 测试用例生成平台</h1>
-        <p>狄耐克 · 嵌入式测试用例自动生成</p>
+        <h1>AI 驱动的研发质量前置平台</h1>
+        <p>狄耐克 · 从需求体检到测试用例自动生成</p>
       </div>
       <el-form ref="formRef" :model="form" :rules="rules" size="large" @keyup.enter="handleLogin">
         <el-form-item prop="username">

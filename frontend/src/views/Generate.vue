@@ -33,14 +33,63 @@
             <div class="opt-row">
               <span class="opt-label">用例等级：</span>
               <el-checkbox-group v-model="form.priority_levels">
-                <el-checkbox value="P0">P0</el-checkbox>
-                <el-checkbox value="P1">P1</el-checkbox>
-                <el-checkbox value="P2">P2</el-checkbox>
-                <el-checkbox value="P3">P3</el-checkbox>
-                <el-checkbox value="P4">P4</el-checkbox>
+                <el-checkbox value="L1">L1 基本</el-checkbox>
+                <el-checkbox value="L2">L2 重要</el-checkbox>
+                <el-checkbox value="L3">L3 一般</el-checkbox>
+                <el-checkbox value="L4">L4 轻微</el-checkbox>
               </el-checkbox-group>
             </div>
-            <el-checkbox v-model="form.enable_rag">启用 RAG 知识库增强</el-checkbox>
+            <div class="tip level-tip">
+              等级按《测试用例等级定义规范》判定，目标占比 L1≈10% / L2≈20% / L3≈60% / L4≈10%。
+              L1 主流程与主要入口功能；L2 常用正常功能、有效等价类与有效边界值；
+              L3 无效等价类、特殊字符、超长、超时、性能与兼容性；L4 深层路径、生僻前置条件、易用性与体验问题
+            </div>
+            <div class="opt-row">
+              <span class="opt-label">生成倍数：</span>
+              <el-slider
+                v-model="form.case_multiplier"
+                :min="1"
+                :max="5"
+                :step="1"
+                :show-tooltip="false"
+                class="multiplier-slider"
+              />
+              <span class="multiplier-val">{{ form.case_multiplier }}x</span>
+              <span class="multiplier-hint">{{ multiplierHints[form.case_multiplier] }}</span>
+            </div>
+            <div class="opt-row est-row" v-if="estimate">
+              <span class="opt-label">预计生成：</span>
+              <span class="est-text">
+                约 <b class="est-num">{{ estimate.est_cases }}</b> 条用例
+                <span class="est-sub">（预估 {{ estimate.est_points }} 个测试点 × {{ form.case_multiplier }} 条/点，粗估）</span>
+              </span>
+              <el-tag v-if="estimate.unparsed > 0" type="warning" size="small">
+                有 {{ estimate.unparsed }} 个文档未解析完成，预估可能偏低
+              </el-tag>
+            </div>
+            <div class="opt-row est-row" v-else-if="estLoading">
+              <span class="opt-label">预计生成：</span>
+              <span class="est-sub">估算中...</span>
+            </div>
+            <div class="opt-row">
+              <el-checkbox v-model="form.enable_rag">启用 RAG 知识库增强</el-checkbox>
+              <el-checkbox v-model="form.replace_existing">
+                覆盖重建：先清空所选文档原有测试点/用例再生成
+              </el-checkbox>
+            </div>
+            <div class="opt-row">
+              <el-checkbox v-model="form.auto_dedup">
+                生成后自动重复扫描：对本批结果打【疑似重复】标注（只标不删）
+              </el-checkbox>
+            </div>
+            <div class="opt-row">
+              <el-checkbox v-model="form.dedup_on_generate">
+                入库前防重：与库内已有用例操作路径高度相似的候选不再写入（仅拦明显重复）
+              </el-checkbox>
+            </div>
+            <div class="opt-row replace-hint" v-if="form.replace_existing">
+              <span class="tip">注意：勾选后将删除所选文档名下已有的全部测试点与用例（含历史结果），用本次新结果替代，用于清理旧数据/多余用例。</span>
+            </div>
           </div>
         </el-form-item>
         <el-form-item>
@@ -63,10 +112,29 @@
         <el-result icon="success" title="生成完成" :sub-title="`共生成 ${task.total_case} 条测试用例`">
           <template #extra>
             <el-button type="primary" @click="goCases">查看用例</el-button>
+            <el-button type="warning" plain :loading="checking" @click="handleSelfCheck">AI 自查</el-button>
             <el-button @click="viewCoverage">查看覆盖率</el-button>
             <el-button @click="reviewVisible = true">查看评审</el-button>
           </template>
         </el-result>
+        <el-alert
+          v-if="autoDedupInfo"
+          :type="autoDedupInfo.type"
+          :title="autoDedupInfo.title"
+          :description="autoDedupInfo.description"
+          :closable="false"
+          show-icon
+          class="auto-dedup-alert"
+        />
+        <el-alert
+          v-if="dedupSkippedInfo"
+          type="info"
+          :title="dedupSkippedInfo.title"
+          :description="dedupSkippedInfo.description"
+          :closable="false"
+          show-icon
+          class="auto-dedup-alert"
+        />
       </div>
       <el-alert v-if="task.error_msg" type="error" :title="task.error_msg" show-icon />
     </el-card>
@@ -137,10 +205,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { documentApi, generateApi, projectApi } from '@/api'
+import { documentApi, generateApi, projectApi, testCaseApi } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -151,11 +219,23 @@ const form = reactive({
   project_id: Number(route.query.project_id) || undefined,
   document_ids: route.query.document_id ? [Number(route.query.document_id)] : [],
   include_types: ['function', 'boundary', 'exception'],
-  priority_levels: ['P0', 'P1', 'P2', 'P3', 'P4'],
+  priority_levels: ['L1', 'L2', 'L3', 'L4'],
   enable_rag: true,
+  case_multiplier: 2, // 生成倍数：每个测试点生成的用例条数（1x~5x）
+  replace_existing: false, // 覆盖重建：清空所选文档旧测试点/用例后重新生成
+  auto_dedup: true, // 生成完成后自动对本批用例执行重复扫描标注
+  dedup_on_generate: true, // 入库前防重：与库内已有用例操作路径高度相似的候选不入库
 })
+const multiplierHints: Record<number, string> = {
+  1: '精简：每测试点约 1 条',
+  2: '标准（默认）：每测试点约 2 条',
+  3: '较全：每测试点约 3 条',
+  4: '全面：每测试点约 4 条',
+  5: '深度：每测试点约 5 条',
+}
 
 const creating = ref(false)
+const checking = ref(false)
 const task = ref<any>(null)
 const coverageVisible = ref(false)
 const coverage = ref<any>({})
@@ -187,6 +267,38 @@ const stageText = computed(() => {
   return map[task.value.stage] || ''
 })
 
+// 生成收尾自动重复扫描的结果展示（result_summary.auto_dedup）
+const autoDedupInfo = computed(() => {
+  const a = task.value?.result_summary?.auto_dedup
+  if (!a) return null
+  if (a.error) {
+    return { type: 'warning', title: '本次重复扫描未能完成', description: String(a.error) }
+  }
+  if (a.groups && a.groups > 0) {
+    return {
+      type: 'warning',
+      title: `发现 ${a.groups} 组疑似重复：已标注 ${a.flagged} 条（扫描 ${a.scanned || 0} 条）`,
+      description: '可在「用例管理 → 按生成批次 → 一键清理重复」中保留每组代表并删除冗余。',
+    }
+  }
+  return {
+    type: 'success',
+    title: '重复扫描完成：未发现疑似重复组',
+    description: `已对本次生成的 ${a.scanned || 0} 条用例自动比对`,
+  }
+})
+
+// 入库前防重拦截统计（result_summary.dedup_skipped）
+const dedupSkippedInfo = computed(() => {
+  const s = task.value?.result_summary?.dedup_skipped ?? 0
+  if (s <= 0) return null
+  const examples = (task.value?.result_summary?.dedup_skip_examples || []).slice(0, 2)
+  return {
+    title: `入库前防重：拦截 ${s} 条与库内已有用例重复的候选（未写入库）`,
+    description: examples.length ? `示例：${examples.join('；')}` : '可通过取消“入库前防重”关闭本拦截',
+  }
+})
+
 const loadProjects = async () => {
   const data = await projectApi.list({ page_size: 100 })
   projects.value = data.list
@@ -197,6 +309,48 @@ const loadDocuments = async () => {
   if (!form.project_id) return
   const data = await documentApi.list({ project_id: form.project_id, page_size: 100 })
   documents.value = data.list
+}
+
+// ===== 预计生成量（生成倍数 × 预估测试点数） =====
+const estimate = ref<any>(null)
+const estLoading = ref(false)
+const loadEstimate = async () => {
+  estimate.value = null
+  if (!form.project_id || !form.document_ids.length) return
+  estLoading.value = true
+  try {
+    const res: any = await generateApi.preview({
+      project_id: form.project_id,
+      document_ids: form.document_ids,
+    })
+    estimate.value = {
+      est_points: res.est_points,
+      est_cases: Math.round(res.est_points * form.case_multiplier),
+      unparsed: res.unparsed,
+    }
+  } catch {
+    /* 预估失败不阻塞生成 */
+  } finally {
+    estLoading.value = false
+  }
+}
+// 项目/文档变化时向后端请求预估测试点数
+watch(
+  () => [form.project_id, form.document_ids.slice().join(',')],
+  loadEstimate,
+)
+// 拖动滑杆（倍数变化）仅本地重算，避免连续请求后端
+watch(
+  () => form.case_multiplier,
+  (v) => {
+    if (estimate.value && estimate.value.est_points) {
+      estimate.value.est_cases = Math.round(estimate.value.est_points * v)
+    }
+  },
+)
+// 路由直带 project/document 时也触发一次预估
+if (form.project_id && form.document_ids.length) {
+  setTimeout(loadEstimate, 0)
 }
 
 const handleGenerate = async () => {
@@ -211,6 +365,10 @@ const handleGenerate = async () => {
         include_types: form.include_types,
         priority_levels: form.priority_levels,
         enable_rag: form.enable_rag,
+        case_multiplier: form.case_multiplier,
+        replace_existing: form.replace_existing,
+        auto_dedup: form.auto_dedup,
+        dedup_on_generate: form.dedup_on_generate,
       },
     })
     task.value = { ...res, progress: 0, stage: 'pending', status: 'pending' }
@@ -245,6 +403,28 @@ const viewCoverage = async () => {
   coverageVisible.value = true
 }
 
+// AI 自查：对本次任务生成的全部用例逐条比对需求原文，标注存疑/不符（只标注不改动）
+const handleSelfCheck = async () => {
+  if (!task.value?.id) return
+  checking.value = true
+  try {
+    const res: any = await testCaseApi.selfCheck({ task_id: task.value.id })
+    if (res && typeof res === 'object' && 'checked' in res) {
+      let msg = `AI 自查完成：${res.checked} 条已检查`
+      if (res.flagged > 0) msg += `，${res.flagged} 条发现问题`
+      else msg += `，未发现问题`
+      if (res.skipped > 0) msg += `；${res.skipped} 条缺少原文依据已跳过`
+      ElMessage.success(msg)
+    } else {
+      ElMessage.success('AI 自查完成，请到用例列表查看备注')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || 'AI 自查失败')
+  } finally {
+    checking.value = false
+  }
+}
+
 onMounted(loadProjects)
 </script>
 
@@ -269,6 +449,12 @@ onMounted(loadProjects)
   color: #c0c4cc;
 }
 
+.level-tip {
+  margin: -2px 0 2px 0;
+  line-height: 1.7;
+  color: #a8abb2;
+}
+
 .options {
   display: flex;
   flex-direction: column;
@@ -287,6 +473,40 @@ onMounted(loadProjects)
   flex-shrink: 0;
 }
 
+.multiplier-slider {
+  width: 300px;
+  flex-shrink: 0;
+}
+
+.multiplier-val {
+  font-weight: 600;
+  color: #409eff;
+  min-width: 28px;
+}
+
+.multiplier-hint {
+  color: #909399;
+  font-size: 12px;
+}
+
+.est-row {
+  color: #606266;
+}
+
+.est-text {
+  font-size: 13px;
+}
+
+.est-num {
+  color: #f56c6c;
+  font-size: 16px;
+}
+
+.est-sub {
+  color: #c0c4cc;
+  font-size: 12px;
+}
+
 .ml8 {
   margin-left: 8px;
 }
@@ -294,6 +514,11 @@ onMounted(loadProjects)
 .stage-text {
   margin-top: 12px;
   color: #606266;
+}
+
+.auto-dedup-alert {
+  margin: 14px 24px 4px;
+  text-align: left;
 }
 
 .coverage-summary {

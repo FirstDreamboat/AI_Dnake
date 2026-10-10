@@ -3,7 +3,7 @@
 统一封装模型调用接口:
 - 文本生成 (chat)  : LLM_PROVIDER=ollama 时走本地 qwen2.5，=deepseek 时走 DeepSeek API
 - 向量生成 (embed) : 云端优先(硅基流动等 OpenAI 兼容接口)，失败自动回退本地 Ollama bge-m3
-- 视觉解析 (describe_image): 云端优先(硅基流动 Qwen2.5-VL)，失败自动回退本地 Ollama qwen2.5vl
+- 视觉解析 (describe_image): 仅使用云端硅基流动视觉模型（Qwen3-VL），不回退本地 Ollama
 后续可通过 /system 接口查看 Provider 配置。
 """
 import base64
@@ -187,19 +187,16 @@ class LLMService:
     }
 
     def describe_image(self, image_path: str, prompt: str | None = None, timeout: float = 300) -> str:
-        """解析图片为文本描述，云端优先、Ollama 兜底
+        """解析图片为文本描述，仅使用云端硅基流动视觉模型
 
-        - VISION_PROVIDER=ollama 或未配置 VISION_API_KEY 时，走本地 Ollama
-          多模态模型（需已 pull 如 qwen2.5vl:3b，并设置 VISION_ENABLED=true）；
+        - VISION_PROVIDER=ollama 或未配置 VISION_API_KEY 时，不解析图片直接返回空串
+          （不再回退本地 Ollama：本地 CPU 推理极慢且常不可用，会拖垮解析任务）；
         - 默认走云端 OpenAI 兼容视觉接口（硅基流动 Qwen/Qwen3-VL-32B-Instruct），
-          云端失败自动回退本地 Ollama。
+          云端失败时直接抛出异常，由调用方决定如何处理（如跳过该图保留原引用）。
         """
         if settings.VISION_PROVIDER.lower() != "ollama" and settings.VISION_API_KEY:
-            try:
-                return self._describe_image_cloud(image_path, prompt, timeout)
-            except Exception as e:  # noqa: BLE001 - 云端失败回退本地
-                logger.warning("云端视觉解析失败，回退本地 Ollama: %s", e)
-        return self._describe_image_ollama(image_path, prompt, timeout)
+            return self._describe_image_cloud(image_path, prompt, timeout)
+        return ""
 
     def _describe_image_cloud(self, image_path: str, prompt: str | None = None, timeout: float = 300) -> str:
         """调用云端 OpenAI 兼容视觉接口（默认硅基流动）"""

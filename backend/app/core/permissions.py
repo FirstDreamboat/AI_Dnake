@@ -36,6 +36,10 @@ DEFAULT_PERMISSIONS: dict[str, list[str]] = {
         "logs",
     ],
     "engineer": ["project", "generate", "knowledge", "script"],
+    # 产品经理：需求体检 + 知识库 + 项目查看，不涉及测试脚本（把质量前置到需求阶段）
+    "product": ["project", "generate", "knowledge"],
+    # 研发人员：需求体检 + 提测自带脚本 + 知识库
+    "developer": ["project", "generate", "knowledge", "script"],
 }
 
 # 校验权限点是否为合法值
