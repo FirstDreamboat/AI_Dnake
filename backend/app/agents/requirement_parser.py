@@ -174,35 +174,67 @@ class RequirementParserAgent(BaseAgent):
     name = "requirement_parser"
 
     def run(self, content: str) -> list[dict]:
-        """解析需求文档，返回需求清单（分块解析后去重汇总）"""
+        """解析需求文档，返回需求清单（分块解析后去重汇总）
+
+        容错策略：
+        - 某块解析出 0 条（如目录/版本信息/名词解释等无需求内容）→ 跳过继续，不让整篇失败；
+        - 连续 3 块调用异常 → 判定 LLM 服务故障，快速失败（避免对后续每块做无谓重试）；
+        - 所有块均为空 → 才报"未提取出有效需求"。
+        """
         if not content or not content.strip():
             return []
         chunks = _chunk_text(content)
         all_requirements: list[dict] = []
-        for chunk in chunks:
+        error_streak = 0  # 连续调用异常的块数
+        last_error: str | None = None
+
+        for gi, chunk in enumerate(chunks, start=1):
             prompt = REQUIREMENT_PARSE_PROMPT.replace("{content}", chunk)
-            reqs = self._parse_chunk(prompt)
+            reqs, err = self._parse_chunk(prompt)
             # 数量不足兜底：提高随机度再解析一次，合并去重
             if len(reqs) < MIN_EXPECTED_PER_CHUNK:
-                reqs = self._merge_unique(reqs, self._parse_chunk(prompt, temperature=RETRY_TEMPERATURE))
+                reqs_retry, err_retry = self._parse_chunk(prompt, temperature=RETRY_TEMPERATURE)
+                err = err or err_retry
+                reqs = self._merge_unique(reqs, reqs_retry)
+
             if not reqs:
-                raise RequirementParseError(
-                    "需求解析失败：模型连续两次未返回有效结果，请检查 LLM 服务（Ollama/DeepSeek）是否可用"
-                )
+                if err:
+                    error_streak += 1
+                    last_error = err
+                else:
+                    error_streak = 0
+                    logger.warning(
+                        "[requirement_parser] 第 %s/%s 块两次解析均未提取出需求，跳过（该块可能为目录/说明性内容）",
+                        gi, len(chunks),
+                    )
+                if error_streak >= 3:
+                    raise RequirementParseError(
+                        f"需求解析失败：LLM 服务连续 {error_streak} 块调用异常"
+                        f"（最后错误：{last_error}），请检查 LLM 服务是否可用"
+                    )
+                continue
+
+            error_streak = 0
             all_requirements = self._merge_unique(all_requirements, reqs)
+
+        if not all_requirements:
+            raise RequirementParseError(
+                "需求解析失败：所有文档块均未提取出有效需求，请确认上传的是有效需求/PRD 文档"
+            )
         # 模型每块输出都从 1 编号，跨块 no 会重复；合并完成后统一重新编号，保证全局唯一
         for i, r in enumerate(all_requirements, start=1):
             r["no"] = f"REQ-{i:03d}"
         return all_requirements
 
-    def _parse_chunk(self, prompt: str, temperature: float | None = None) -> list[dict]:
+    def _parse_chunk(self, prompt: str, temperature: float | None = None) -> tuple[list[dict], str | None]:
+        """解析单块，返回 (需求列表, 调用异常信息)；调用成功时 error 为 None"""
         try:
             # 普通生成模式（非 json mode），管道分隔文本枚举能力更强
             text = self.llm.chat(prompt, system=self.system_prompt, temperature=temperature)
-            return parse_requirements_text(text)
+            return parse_requirements_text(text), None
         except Exception as e:
             logger.error("[requirement_parser] LLM 调用失败: %s", e)
-            return []
+            return [], str(e)
 
     @staticmethod
     def _merge_unique(a: list[dict], b: list[dict]) -> list[dict]:
