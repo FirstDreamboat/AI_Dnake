@@ -59,3 +59,5 @@ _style_check.xlsx
 # 含本机数据库密码的临时脚本
 check_db_columns.py
 backend/_check_priority.py
+# npm 临时生成目录（docx 生成调试用，含 node_modules）
+backend/_docx_gen/
