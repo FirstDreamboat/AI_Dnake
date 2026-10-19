@@ -135,6 +135,12 @@
               <div class="msg-avatar" :class="m.role">{{ m.role === 'user' ? '我' : 'AI' }}</div>
               <div class="msg-bubble">
                 <div class="msg-text">{{ m.content }}</div>
+                <div v-if="m.role === 'assistant'" class="msg-export">
+                  <span class="export-label">导出：</span>
+                  <el-button link type="primary" size="small" :loading="exporting === 'word'" @click="exportChat('word', m.content)">Word</el-button>
+                  <el-button link type="success" size="small" :loading="exporting === 'ppt'" @click="exportChat('ppt', m.content)">PPT</el-button>
+                  <el-button link type="warning" size="small" :loading="exporting === 'pdf'" @click="exportChat('pdf', m.content)">PDF</el-button>
+                </div>
                 <div v-if="m.sources?.length" class="msg-sources">
                   <el-collapse>
                     <el-collapse-item :title="`引用来源（${m.sources.length}）`">
@@ -344,6 +350,30 @@ const handleSend = async () => {
   }
 }
 
+const exporting = ref('')
+
+const exportChat = async (format: 'word' | 'ppt' | 'pdf', answer: string) => {
+  if (!answer?.trim()) {
+    ElMessage.warning('当前没有可导出的内容')
+    return
+  }
+  exporting.value = format
+  try {
+    const blob = await knowledgeApi.chatExport(answer, '知识库总结', format)
+    const url = window.URL.createObjectURL(blob as any)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `知识库总结.${format === 'word' ? 'docx' : format}`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '导出失败')
+  } finally {
+    exporting.value = ''
+  }
+}
+
 const handleNewChat = () => {
   messages.value = []
 }
@@ -531,6 +561,20 @@ onMounted(loadData)
   border-radius: 4px;
   max-height: 90px;
   overflow: auto;
+}
+
+.msg-export {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed #e4e7ed;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.export-label {
+  font-size: 12px;
+  color: #909399;
 }
 
 .chat-input {

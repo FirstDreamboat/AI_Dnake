@@ -35,6 +35,9 @@ openpyxl==3.1.5
 # 需求体检报告 PDF 导出
 reportlab==5.0.1
 
+# 知识库对话导出 PPT
+python-pptx==1.0.2
+
 # 图片验证码
 Pillow==11.1.0
 

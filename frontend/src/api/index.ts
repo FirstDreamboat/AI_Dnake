@@ -124,6 +124,9 @@ export const knowledgeApi = {
   // 知识库对话问答（RAG）
   chat: (question: string, history: { role: string; content: string }[], topK = 5, mode = 'hybrid', productLine = '') =>
     request.post('/knowledge/chat', { question, history, top_k: topK, mode, product_line: productLine || null }),
+  // 知识库对话导出（Word/PPT/PDF；PPT 需 LLM 出大纲，放宽超时）
+  chatExport: (answer: string, title: string, format: 'word' | 'ppt' | 'pdf') =>
+    request.post('/knowledge/chat/export', { answer, title, format }, { responseType: 'blob', timeout: 300000 }),
   // FR-4.4 版本历史
   versions: (id: number) => request.get(`/knowledge/docs/${id}/versions`),
   remove: (id: number) => request.delete(`/knowledge/docs/${id}`),

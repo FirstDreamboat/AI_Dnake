@@ -1,13 +1,16 @@
 """知识库接口"""
 import threading
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.core.deps import get_current_user
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import BusinessError, NotFoundError
 from app.database import SessionLocal, get_db
 from app.models.knowledge import KnowledgeDoc, KnowledgeDocVersion
 from app.models.user import User
@@ -21,6 +24,7 @@ from app.schemas.knowledge import (
     KnowledgeSearchRequest,
 )
 from app.services import document_service
+from app.services.knowledge_export_service import export_chat
 from app.services.llm_service import llm_service
 from app.services.rag_service import rag_service
 
@@ -335,3 +339,33 @@ def delete_knowledge(
     db.delete(kd)
     db.commit()
     return ok(message="知识文档删除成功")
+
+
+class ChatExportRequest(BaseModel):
+    """知识库对话导出请求"""
+
+    answer: str = Field(..., min_length=1, description="AI 回答的 Markdown 文本")
+    title: str = Field("知识库总结", max_length=100)
+    format: str = Field("word", pattern="^(word|ppt|pdf)$")
+
+
+@router.post("/chat/export")
+def chat_export(
+    req: ChatExportRequest,
+    user: User = Depends(get_current_user),
+):
+    """把知识库对话的 AI 回答导出为 Word / PPT / PDF 文件
+
+    PPT 为两段式：LLM 先把回答压缩为幻灯大纲 JSON，再按平台深蓝模板渲染。
+    """
+    try:
+        data, media, filename = export_chat(req.answer, req.title, req.format)
+    except ValueError as e:
+        raise BusinessError(str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        raise BusinessError(f"导出失败: {e}") from e
+    return Response(
+        content=data,
+        media_type=media,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )

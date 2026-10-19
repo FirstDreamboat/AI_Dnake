@@ -846,11 +846,33 @@ data: {"task_id": 1001, "total_case": 56}
 }
 ```
 
-### 10.7 删除知识文档
+### 10.7 对话导出（Word/PPT/PDF）
+
+- **POST** `/knowledge/chat/export`
+- **说明**：把知识库对话的 AI 回答（Markdown 文本）导出为可交付文档。PPT 为两段式：LLM 先将回答压缩为幻灯大纲 JSON（≤10 页，每页标题+要点+演讲备注），再由 python-pptx 按平台深蓝模板渲染——内容与排版分离，产出风格统一；LLM 大纲失败时自动降级为"按标题切页"兜底。
+- **请求体**：
+
+```json
+{
+  "answer": "## 总结内容（Markdown）...",
+  "title": "智能锁测试要点",
+  "format": "word"
+}
+```
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| answer | string | AI 回答的 Markdown 文本 |
+| title | string | 文档标题（同时用于文件名） |
+| format | string | word / ppt / pdf |
+
+- **响应**：文件流（`Content-Disposition` 按 RFC 5987 处理中文文件名）。
+
+### 10.8 删除知识文档
 
 - **DELETE** `/knowledge/docs/{doc_id}`
 
-### 10.8 知识文档版本历史
+### 10.9 知识文档版本历史
 
 - **GET** `/knowledge/docs/{doc_id}/versions`
 - **说明**：FR-4.4 版本管理。返回该文档的历史版本快照列表（含变更说明、快照内容），同名文档更新上传时自动递增版本号并保存旧版本快照。
@@ -1218,6 +1240,7 @@ data: {"task_id": 1001, "total_case": 56}
 | 需求体检 | GET | /req-review/reports/{id} | 报告详情 |
 | 需求体检 | GET | /req-review/reports/{id}/download | 下载报告 PDF |
 | 知识库 | GET/POST | /knowledge/docs | 知识库列表/上传 |
+| 知识库 | POST | /knowledge/chat/export | 对话导出 Word/PPT/PDF |
 | 知识库 | GET/DELETE | /knowledge/docs/{id} | 详情/删除 |
 | 知识库 | GET | /knowledge/docs/{id}/versions | 版本历史 |
 | 知识库 | POST | /knowledge/docs/{id}/vectorize | 触发向量化 |
