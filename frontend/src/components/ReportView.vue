@@ -22,7 +22,7 @@
             size="small"
             effect="plain"
           >
-            {{ techLabel(k as string) }} {{ c }}
+            {{ techLabel(String(k)) }} {{ c }}
           </el-tag>
         </div>
       </el-col>

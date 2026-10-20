@@ -339,7 +339,7 @@ const dedupScanning = ref(false)
 const dedupCleaning = ref(false)
 const scriptDialogRef = ref<InstanceType<typeof ScriptGenerateDialog> | null>(null)
 
-const editForm = reactive({ title: '', priority: 'L2', test_type: '', preconditions: '', expected_result: '', steps: [] as any[] })
+const editForm = reactive({ title: '', module: '' as string | null | undefined, priority: 'L2', test_type: '', preconditions: '', expected_result: '', steps: [] as any[] })
 
 const rejectVisible = ref(false)
 const rejecting = ref(false)
@@ -631,8 +631,8 @@ const handleSelfCheckByTask = async () => {
 const handleDedupScan = async () => {
   const payload: any = filters.task_id
     ? { task_id: Number(filters.task_id) }
-    : selectedIdsArr.length
-      ? { case_ids: selectedIdsArr }
+    : selectedIdsArr.value.length
+      ? { case_ids: selectedIdsArr.value }
       : null
   if (!payload) return
   const overlay = ElLoading.service({
@@ -663,8 +663,8 @@ const handleDedupScan = async () => {
 const handleDedupCleanup = async () => {
   const payload: any = filters.task_id
     ? { task_id: Number(filters.task_id) }
-    : selectedIdsArr.length
-      ? { case_ids: selectedIdsArr }
+    : selectedIdsArr.value.length
+      ? { case_ids: selectedIdsArr.value }
       : null
   if (!payload) return
   dedupCleaning.value = true

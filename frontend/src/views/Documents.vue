@@ -125,7 +125,6 @@ const loadData = async () => {
 }
 
 const imageTypes = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']
-const isImageType = (ft: string) => imageTypes.includes((ft || '').toLowerCase())
 // 原型图类型：图片 + Axure .rp 工程文件（可上传存储，但无法直接文本解析生成用例）
 const prototypeTypes = ['rp', ...imageTypes]
 const isPrototypeType = (ft: string) => prototypeTypes.includes((ft || '').toLowerCase())
