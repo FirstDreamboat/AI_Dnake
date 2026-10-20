@@ -7,7 +7,9 @@ RUN npm install --registry=https://registry.npmmirror.com
 COPY . .
 RUN npm run build
 
-FROM nginx:alpine
+# 注意：钉 1.26-alpine——更新的 nginx 镜像(1.27+/Alpine 3.20+)在 CentOS 7 老内核(3.10)上
+# 启动报 "pwrite() /run/nginx.pid failed (1: Operation not permitted)"，无法运行
+FROM nginx:1.26-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
