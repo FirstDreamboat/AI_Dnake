@@ -36,9 +36,24 @@ def generate_captcha() -> dict:
     return {"captcha_id": captcha_id, "image": f"data:image/png;base64,{b64}"}
 
 
+def _load_font(size: int) -> ImageFont.FreeTypeFont:
+    """按优先级加载可用的 TrueType 字体；容器内无 arial，优先用 Dockerfile 安装的 DejaVu"""
+    for path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Debian/容器
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",                          # Windows 开发环境
+        "arial.ttf",
+    ):
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
 def _draw_image(code: str) -> Image.Image:
     """绘制带干扰线的验证码图片"""
-    width, height = 120, 40
+    width, height = 160, 48
     img = Image.new("RGB", (width, height), (245, 247, 250))
     draw = ImageDraw.Draw(img)
     # 干扰线
@@ -53,14 +68,11 @@ def _draw_image(code: str) -> Image.Image:
             fill=random.choice([(200, 200, 200), (160, 160, 160)]),
         )
     # 字符
-    try:
-        font = ImageFont.truetype("arial.ttf", 24)
-    except Exception:
-        font = ImageFont.load_default()
+    font = _load_font(34)
     char_w = width // (len(code) + 1)
     for i, ch in enumerate(code):
-        x = char_w // 2 + i * char_w + random.randint(-3, 3)
-        y = random.randint(4, 10)
+        x = char_w // 2 + i * char_w + random.randint(-4, 4)
+        y = random.randint(5, 12)
         color = random.choice([(30, 80, 180), (200, 60, 60), (30, 150, 90), (120, 60, 180)])
         draw.text((x, y), ch, font=font, fill=color)
     return img
