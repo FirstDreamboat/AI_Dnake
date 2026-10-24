@@ -125,7 +125,6 @@ function renderGrid(sheets: any[]) {
     },
   })
   sp.loadData(JSON.parse(JSON.stringify(sheets)))
-  ;(window as any).__sp = sp
   sp.change(() => {
     dirty = true
   })
