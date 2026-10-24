@@ -17,7 +17,7 @@
       ⚠ 该文件正被 {{ lockHolder }} 编辑，你的修改不会被保存。对方关闭后锁定自动释放，返回列表重新打开即可编辑。
     </div>
     <div v-else class="ed-banner ok">
-      提示：编辑后请点「保存」写回服务器；页面关闭后编辑锁自动释放。保存仅保留单元格文本（样式/公式转为计算值）。
+      提示：编辑后请点「保存」写回服务器；页面关闭后编辑锁自动释放。保存保留文本与常用格式（字体/颜色/边框/对齐/列宽行高/合并单元格），复杂样式可能略有偏差。
     </div>
     <div ref="gridRef" class="grid-container"></div>
   </div>
@@ -32,6 +32,7 @@ import ExcelJS from 'exceljs'
 import Spreadsheet from 'x-data-spreadsheet'
 import 'x-data-spreadsheet/dist/xspreadsheet.css'
 import { caseFileApi } from '@/api'
+import { excelCellToXsStyle, xsStyleToExcelStyle, colWidthToPx, colPxToWidth, rowPtToPx, rowPxToPt } from '@/utils/xlsxStyle'
 
 const route = useRoute()
 const router = useRouter()
@@ -65,20 +66,43 @@ function cellText(v: any): string {
 }
 
 // 解析 xlsx → x-spreadsheet 多 sheet 数组（底部页签由组件原生渲染与切换）
+// 映射样式: 字体/颜色/对齐/边框/底色 + 列宽 + 行高 + 合并单元格
 async function loadWorkbook(buf: ArrayBuffer) {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf)
   return wb.worksheets.map((ws) => {
+    const styleIdx = new Map<string, number>()
+    const styles: any[] = []
+    const addStyle = (st: any) => {
+      const key = JSON.stringify(st)
+      if (!styleIdx.has(key)) {
+        styleIdx.set(key, styles.length)
+        styles.push(st)
+      }
+      return styleIdx.get(key)!
+    }
     const rows: any = {}
     ws.eachRow({ includeEmpty: false }, (row, rowNum) => {
       const cells: any = {}
       row.eachCell({ includeEmpty: false }, (cell, colNum) => {
         const text = cellText(cell.value)
-        if (text !== '') cells[colNum - 1] = { text }
+        const st = excelCellToXsStyle(cell)
+        const item: any = { text }
+        if (st) item.style = addStyle(st)
+        cells[colNum - 1] = item
       })
-      if (Object.keys(cells).length) rows[rowNum - 1] = { cells }
+      if (Object.keys(cells).length) {
+        const r: any = { cells }
+        if (row.height) r.height = rowPtToPx(row.height)
+        rows[rowNum - 1] = r
+      }
     })
-    return { name: ws.name, rows }
+    const cols: any = {}
+    ws.columns.forEach((col, idx) => {
+      if (col?.width) cols[idx] = { width: colWidthToPx(col.width) }
+    })
+    const merges: string[] = (ws.model?.merges as string[]) || []
+    return { name: ws.name, styles, rows, cols, merges }
   })
 }
 
@@ -101,6 +125,7 @@ function renderGrid(sheets: any[]) {
     },
   })
   sp.loadData(JSON.parse(JSON.stringify(sheets)))
+  ;(window as any).__sp = sp
   sp.change(() => {
     dirty = true
   })
@@ -119,18 +144,42 @@ async function save() {
       while (used.has(name)) name = `${name.slice(0, 28)}_${i}`
       used.add(name)
       const ws = wb.addWorksheet(name)
+      // 解析合并区域: 非锚点单元格跳过写值，最后统一合并
+      const covered = new Set<string>()
+      const mergeRanges: string[] = []
+      for (const m of s.merges || []) {
+        const rng = parseRange(m)
+        if (!rng) continue
+        mergeRanges.push(m)
+        for (let r = rng.r1; r <= rng.r2; r++) {
+          for (let c = rng.c1; c <= rng.c2; c++) {
+            if (r !== rng.r1 || c !== rng.c1) covered.add(`${r}:${c}`)
+          }
+        }
+      }
       Object.entries(s.rows || {}).forEach(([r, rowDef]: [string, any]) => {
         const xr = ws.getRow(Number(r) + 1)
+        if (rowDef?.height) xr.height = rowPxToPt(rowDef.height)
         Object.entries(rowDef?.cells || {}).forEach(([c, cellDef]: [string, any]) => {
+          if (covered.has(`${r}:${c}`)) return
           const text = cellDef?.text ?? ''
+          const xcell = xr.getCell(Number(c) + 1)
+          const style = xsStyleToExcelStyle(s.styles?.[cellDef?.style])
+          if (style) xcell.style = style
           if (text === '' || text === null) return
           if (typeof text === 'string' && /^-?\d+(\.\d+)?$/.test(text.trim()) && text.trim().length < 16) {
-            xr.getCell(Number(c) + 1).value = Number(text.trim())
+            xcell.value = Number(text.trim())
           } else {
-            xr.getCell(Number(c) + 1).value = text
+            xcell.value = text
           }
         })
         xr.commit()
+      })
+      Object.entries(s.cols || {}).forEach(([c, colDef]: [string, any]) => {
+        if (colDef?.width) ws.getColumn(Number(c) + 1).width = colPxToWidth(colDef.width)
+      })
+      mergeRanges.forEach((m) => {
+        try { ws.mergeCells(m) } catch { /* 已合并/非法区域忽略 */ }
       })
     })
     const buf = await wb.xlsx.writeBuffer()
@@ -140,6 +189,14 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+/** 'A1:B2' → {r1,c1,r2,c2}（0 基） */
+function parseRange(m: string) {
+  const mt = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i.exec(m || '')
+  if (!mt) return null
+  const col = (s: string) => s.toUpperCase().split('').reduce((acc, ch) => acc * 26 + (ch.charCodeAt(0) - 64), 0) - 1
+  return { r1: Number(mt[2]) - 1, c1: col(mt[1]), r2: Number(mt[4]) - 1, c2: col(mt[3]) }
 }
 
 function download() {
