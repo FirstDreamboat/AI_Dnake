@@ -3,16 +3,17 @@
     <div class="ed-topbar">
       <el-button :icon="Back" @click="goBack">返回列表</el-button>
       <span class="ed-fname">📄 {{ filename }}</span>
-      <el-tag v-if="editable" type="success">● 你正在编辑（其他人为只读）</el-tag>
-      <el-tag v-else type="warning">🔒 {{ lockHolder }} 正在编辑 · 你当前为只读</el-tag>
+      <el-tag v-if="preview" type="info">预览模式</el-tag>
+      <el-tag v-else-if="editable" type="success">● 你正在编辑（其他人为只读）</el-tag>
+      <el-tag v-else type="warning">🔒 {{ lockHolder }} 正在编辑 · 只读</el-tag>
       <div class="flex-spacer"></div>
-      <el-select v-if="sheetNames.length > 1" v-model="currentSheet" size="small" style="width:160px" @change="switchSheet">
-        <el-option v-for="(name, i) in sheetNames" :key="i" :label="name" :value="i" />
-      </el-select>
       <el-button :icon="Download" @click="download">下载</el-button>
       <el-button type="primary" :icon="Check" :disabled="!editable" :loading="saving" @click="save">保存</el-button>
     </div>
-    <div v-if="!editable" class="ed-banner warn">
+    <div v-if="preview" class="ed-banner ok">
+      当前为预览模式（只读，不占用编辑锁）。需要修改请返回列表点击「打开编辑」。底部页签可切换工作表。
+    </div>
+    <div v-else-if="!editable" class="ed-banner warn">
       ⚠ 该文件正被 {{ lockHolder }} 编辑，你的修改不会被保存。对方关闭后锁定自动释放，返回列表重新打开即可编辑。
     </div>
     <div v-else class="ed-banner ok">
@@ -40,11 +41,9 @@ const filename = ref('')
 const editable = ref(false)
 const lockHolder = ref('')
 const saving = ref(false)
-const currentSheet = ref(0)
-const sheetNames = ref<string[]>([])
+const preview = ref(false)
 const gridRef = ref<HTMLDivElement>()
 
-let sheetsStore: { name: string; rows: any }[] = []
 let sp: any = null
 let heartbeatTimer: number | null = null
 let dirty = false
@@ -65,10 +64,11 @@ function cellText(v: any): string {
   return String(v)
 }
 
+// 解析 xlsx → x-spreadsheet 多 sheet 数组（底部页签由组件原生渲染与切换）
 async function loadWorkbook(buf: ArrayBuffer) {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf)
-  sheetsStore = wb.worksheets.map((ws) => {
+  return wb.worksheets.map((ws) => {
     const rows: any = {}
     ws.eachRow({ includeEmpty: false }, (row, rowNum) => {
       const cells: any = {}
@@ -80,54 +80,37 @@ async function loadWorkbook(buf: ArrayBuffer) {
     })
     return { name: ws.name, rows }
   })
-  sheetNames.value = sheetsStore.map((s) => s.name)
-  currentSheet.value = 0
 }
 
-function renderGrid() {
+function renderGrid(sheets: any[]) {
   const el = gridRef.value
   if (!el) return
   el.innerHTML = ''
-  const store = sheetsStore[currentSheet.value]
+  const maxRow = Math.max(100, ...sheets.map((s) => Object.keys(s.rows || {}).length + 20))
   sp = new Spreadsheet(el, {
     mode: editable.value ? 'edit' : 'read',
     showToolbar: true,
     showGrid: true,
     showContextmenu: editable.value,
-    row: { len: Math.max(100, Object.keys(store.rows || {}).length + 20), height: 25 },
+    row: { len: maxRow, height: 25 },
     col: { len: 26, width: 120, minWidth: 60, indexWidth: 46 },
   })
-  sp.loadData({ name: store.name, rows: JSON.parse(JSON.stringify(store.rows || {})) })
+  sp.loadData(JSON.parse(JSON.stringify(sheets)))
   sp.change(() => {
     dirty = true
-    pullCurrentRows()
   })
 }
 
-function pullCurrentRows() {
-  if (!sp) return
-  try {
-    let data = sp.getData()
-    if (Array.isArray(data)) data = data[0]
-    if (data && data.rows) sheetsStore[currentSheet.value].rows = data.rows
-  } catch {
-    /* 取数异常时以最后一次成功数据为准 */
-  }
-}
-
-function switchSheet() {
-  pullCurrentRows()
-  renderGrid()
-}
-
+// 保存：直接从组件取回全部 sheet 数据重建 xlsx
 async function save() {
-  pullCurrentRows()
   saving.value = true
   try {
+    let all: any[] = sp.getData()
+    if (!Array.isArray(all)) all = [all]
     const wb = new ExcelJS.Workbook()
     const used = new Set<string>()
-    sheetsStore.forEach((s, i) => {
-      let name = (s.name || `Sheet${i + 1}`).replace(/[/\\*?:[\]]/g, '_').slice(0, 31) || `Sheet${i + 1}`
+    all.forEach((s, i) => {
+      let name = (s?.name || `Sheet${i + 1}`).replace(/[/\\*?:[\]]/g, '_').slice(0, 31) || `Sheet${i + 1}`
       while (used.has(name)) name = `${name.slice(0, 28)}_${i}`
       used.add(name)
       const ws = wb.addWorksheet(name)
@@ -178,7 +161,6 @@ function startHeartbeat() {
         editable.value = false
         lockHolder.value = '他人'
         stopHeartbeat()
-        renderGrid()
         ElMessage.warning('编辑锁已失效，已切换为只读模式')
       }
     }
@@ -200,15 +182,20 @@ function beforeUnloadHandler(e: BeforeUnloadEvent) {
 }
 
 onMounted(async () => {
-  const res: any = await caseFileApi.open(fileId)
-  const payload = res?.data ?? res
-  filename.value = payload?.file?.filename || '未命名'
-  editable.value = !!payload?.lock?.acquired
-  lockHolder.value = payload?.lock?.holder_name || ''
+  preview.value = route.query.preview === '1'
+  if (!preview.value) {
+    const res: any = await caseFileApi.open(fileId)
+    const payload = res?.data ?? res
+    filename.value = payload?.file?.filename || (route.query.name as string) || '未命名'
+    editable.value = !!payload?.lock?.acquired
+    lockHolder.value = payload?.lock?.holder_name || ''
+  } else {
+    filename.value = (route.query.name as string) || '未命名'
+  }
 
   const blob: any = await caseFileApi.download(fileId)
-  await loadWorkbook(await blob.arrayBuffer())
-  renderGrid()
+  const sheets = await loadWorkbook(await blob.arrayBuffer())
+  renderGrid(sheets)
 
   if (editable.value) {
     startHeartbeat()

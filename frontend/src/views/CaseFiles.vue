@@ -34,6 +34,7 @@
       </el-table-column>
       <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
+          <el-button link type="info" @click="previewFile(row)">预览</el-button>
           <el-button link type="primary" @click="openFile(row)">
             {{ row.lock.locked && !row.lock.by_me ? '查看(只读)' : '打开编辑' }}
           </el-button>
@@ -114,7 +115,7 @@ const handleUpload = async () => {
     await loadList()
     const created = res?.data
     if (openAfterUpload.value && created?.id) {
-      router.push(`/case-file-editor/${created.id}?project_id=${projectId}`)
+      router.push(`/case-file-editor/${created.id}?project_id=${projectId}&name=${encodeURIComponent(created.filename)}`)
     }
   } finally {
     uploading.value = false
@@ -122,7 +123,11 @@ const handleUpload = async () => {
 }
 
 const openFile = (row: any) => {
-  router.push(`/case-file-editor/${row.id}?project_id=${projectId}`)
+  router.push(`/case-file-editor/${row.id}?project_id=${projectId}&name=${encodeURIComponent(row.filename)}`)
+}
+
+const previewFile = (row: any) => {
+  router.push(`/case-file-editor/${row.id}?project_id=${projectId}&preview=1&name=${encodeURIComponent(row.filename)}`)
 }
 
 const download = async (row: any) => {
