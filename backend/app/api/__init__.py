@@ -1,11 +1,12 @@
 """API 路由注册"""
 from fastapi import APIRouter
 
-from app.api import auth, documents, generate, knowledge, logs, notifications, permissions, projects, requirement_review, script_templates, scripts, stats, system, test_cases, test_points, users
+from app.api import auth, case_files, documents, generate, knowledge, logs, notifications, permissions, projects, requirement_review, script_templates, scripts, stats, system, test_cases, test_points, users
 
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth.router, tags=["认证"])
+api_router.include_router(case_files.router, prefix="/case-files", tags=["用例文件"])
 api_router.include_router(users.router, prefix="/users", tags=["用户"])
 api_router.include_router(permissions.router, tags=["权限"])
 api_router.include_router(projects.router, prefix="/projects", tags=["项目"])

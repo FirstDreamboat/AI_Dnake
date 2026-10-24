@@ -82,7 +82,19 @@ def delete_project(db: Session, project_id: int) -> None:
     db.execute(delete(GenerationTask).where(or_(GenerationTask.project_id == project_id, GenerationTask.document_id.in_(doc_ids))))
     # 6. 文档（引用项目）
     db.execute(delete(Document).where(Document.project_id == project_id))
-    # 7. 项目
+    # 7. 用例文件（引用项目）：连同磁盘存储一并清理
+    from app.models.case_file import CaseFile
+
+    case_files = db.scalars(select(CaseFile).where(CaseFile.project_id == project_id)).all()
+    for cf in case_files:
+        try:
+            from app.services import case_file_service as _cfs
+
+            _cfs.resolve_stored_path(cf.stored_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+    db.execute(delete(CaseFile).where(CaseFile.project_id == project_id))
+    # 8. 项目
     db.delete(project)
     db.commit()
 

@@ -77,6 +77,7 @@
           <template #default="{ row }">
             <el-button link type="primary" @click="goDocuments(row)">需求文档</el-button>
             <el-button link type="success" @click="goCases(row)">测试用例</el-button>
+            <el-button link type="warning" @click="goCaseFiles(row)">测试用例管理</el-button>
             <el-button link type="warning" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="row.status === 'active'" link type="info" @click="handleArchive(row)">归档</el-button>
             <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
@@ -174,6 +175,7 @@ const handleSizeChange = (size: number) => {
 const goDetail = (row: any) => router.push(`/projects/${row.id}/documents`)
 const goDocuments = (row: any) => router.push(`/projects/${row.id}/documents`)
 const goCases = (row: any) => router.push(`/projects/${row.id}/cases`)
+const goCaseFiles = (row: any) => router.push(`/projects/${row.id}/case-files`)
 
 // 新建/编辑
 const dialogVisible = ref(false)

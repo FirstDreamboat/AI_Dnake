@@ -212,3 +212,26 @@ export const systemApi = {
   llmConfig: () => request.get('/system/llm-config'),
   saveLlmConfig: (data: any) => request.put('/system/llm-config', data),
 }
+
+// ===== 用例文件（项目内 Excel 在线编辑，单人锁定模式） =====
+export const caseFileApi = {
+  list: (projectId: number) => request.get('/case-files', { params: { project_id: projectId } }),
+  upload: (projectId: number, file: File) => {
+    const form = new FormData()
+    form.append('project_id', String(projectId))
+    form.append('file', file)
+    return request.post('/case-files/upload', form)
+  },
+  // 打开：抢编辑锁，acquired=false 表示只读
+  open: (id: number) => request.post(`/case-files/${id}/open`),
+  // 心跳续锁（30s 一次）；锁失效返回 409
+  heartbeat: (id: number) => request.post(`/case-files/${id}/heartbeat`),
+  release: (id: number) => request.post(`/case-files/${id}/release`),
+  save: (id: number, file: Blob) => {
+    const form = new FormData()
+    form.append('file', file, 'workbook.xlsx')
+    return request.post(`/case-files/${id}/save`, form)
+  },
+  download: (id: number) => request.get(`/case-files/${id}/download`, { responseType: 'blob', timeout: 120000 }),
+  remove: (id: number) => request.delete(`/case-files/${id}`),
+}

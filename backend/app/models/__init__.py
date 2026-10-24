@@ -1,5 +1,6 @@
 """ORM 模型注册"""
 from app.models.document import Document
+from app.models.case_file import CaseFile
 from app.models.generation_task import GenerationTask
 from app.models.knowledge import KnowledgeDoc, KnowledgeDocVersion
 from app.models.notification import Notification

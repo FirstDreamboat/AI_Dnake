@@ -13,6 +13,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ChangePassword.vue'),
   },
   {
+    // 用例文件全屏在线编辑（独立于 Layout，铺满浏览器）
+    path: '/case-file-editor/:fileId',
+    name: 'CaseFileEditor',
+    component: () => import('@/views/CaseFileEditor.vue'),
+  },
+  {
     path: '/',
     component: () => import('@/views/Layout.vue'),
     redirect: '/dashboard',
@@ -22,6 +28,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'projects/:id/documents', name: 'Documents', component: () => import('@/views/Documents.vue'), meta: { title: '需求文档', perm: 'project' } },
       { path: 'projects/:id/test-points', name: 'TestPoints', component: () => import('@/views/TestPoints.vue'), meta: { title: '测试点管理', perm: 'project' } },
       { path: 'projects/:id/cases', name: 'TestCases', component: () => import('@/views/TestCases.vue'), meta: { title: '测试用例', perm: 'project' } },
+      { path: 'projects/:id/case-files', name: 'CaseFiles', component: () => import('@/views/CaseFiles.vue'), meta: { title: '测试用例管理', perm: 'project' } },
       { path: 'generate', name: 'Generate', component: () => import('@/views/Generate.vue'), meta: { title: 'AI生成', perm: 'generate' } },
       { path: 'req-review', name: 'RequirementReview', component: () => import('@/views/RequirementReview.vue'), meta: { title: '需求体检', perm: 'generate' } },
       { path: 'tasks', name: 'Tasks', component: () => import('@/views/Tasks.vue'), meta: { title: '任务历史' } },
