@@ -94,6 +94,11 @@ function renderGrid(sheets: any[]) {
     showContextmenu: editable.value,
     row: { len: maxRow, height: 25 },
     col: { len: 26, width: 120, minWidth: 60, indexWidth: 46 },
+    // 默认取视口高度会把底部页签栏(40px)挤出容器被裁掉，必须传容器实际高度
+    view: {
+      height: () => el.clientHeight - 40,
+      width: () => el.clientWidth,
+    },
   })
   sp.loadData(JSON.parse(JSON.stringify(sheets)))
   sp.change(() => {
