@@ -73,14 +73,27 @@
         <el-table-column prop="created_at" label="创建时间" width="170">
           <template #default="{ row }">{{ (row.created_at || '').replace('T', ' ').slice(0, 19) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="190" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="goDocuments(row)">需求文档</el-button>
-            <el-button link type="success" @click="goCases(row)">测试用例</el-button>
-            <el-button link type="warning" @click="goCaseFiles(row)">测试用例管理</el-button>
-            <el-button link type="warning" @click="openEdit(row)">编辑</el-button>
-            <el-button v-if="row.status === 'active'" link type="info" @click="handleArchive(row)">归档</el-button>
-            <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button link type="primary" @click="goDocuments(row)">进入项目</el-button>
+            <el-dropdown trigger="click" @command="(cmd: string) => handleCommand(cmd, row)">
+              <el-button link type="primary">
+                更多<el-icon style="margin-left: 2px"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="cases">测试用例</el-dropdown-item>
+                  <el-dropdown-item command="caseFiles">
+                    <span style="color: #e6a23c; font-weight: bold">测试用例管理</span>
+                  </el-dropdown-item>
+                  <el-dropdown-item command="edit" divided>编辑</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'active'" command="archive">归档</el-dropdown-item>
+                  <el-dropdown-item command="delete" divided>
+                    <span style="color: #f56c6c">删除</span>
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -126,6 +139,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ArrowDown } from '@element-plus/icons-vue'
 import { projectApi } from '@/api'
 
 const router = useRouter()
@@ -176,6 +190,14 @@ const goDetail = (row: any) => router.push(`/projects/${row.id}/documents`)
 const goDocuments = (row: any) => router.push(`/projects/${row.id}/documents`)
 const goCases = (row: any) => router.push(`/projects/${row.id}/cases`)
 const goCaseFiles = (row: any) => router.push(`/projects/${row.id}/case-files`)
+// 操作列「更多」下拉分发
+const handleCommand = (cmd: string, row: any) => {
+  if (cmd === 'cases') goCases(row)
+  else if (cmd === 'caseFiles') goCaseFiles(row)
+  else if (cmd === 'edit') openEdit(row)
+  else if (cmd === 'archive') handleArchive(row)
+  else if (cmd === 'delete') handleDelete(row)
+}
 
 // 新建/编辑
 const dialogVisible = ref(false)
