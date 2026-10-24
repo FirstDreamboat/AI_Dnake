@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>原型图 - 测试用例管理（文件在线编辑）</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:"Microsoft YaHei",sans-serif; }
+  body { background:#f0f2f5; padding:24px; }
+  .screen { max-width:1080px; margin:0 auto 40px; background:#fff; border-radius:8px;
+            box-shadow:0 2px 8px rgba(0,0,0,.08); overflow:hidden; }
+  .screen-title { background:#1f2d3d; color:#fff; padding:10px 20px; font-size:15px; }
+  .screen-title small { opacity:.7; margin-left:10px; }
+  .flow-arrow { text-align:center; color:#409EFF; font-size:20px; margin:-30px auto 20px; max-width:1080px; }
+  /* ===== 页面骨架 ===== */
+  .layout { display:flex; min-height:430px; }
+  .sider { width:180px; background:#304156; padding:12px 0; flex-shrink:0; }
+  .sider .logo { color:#fff; padding:8px 20px 20px; font-size:14px; font-weight:bold; }
+  .menu-item { color:#bfcbd9; padding:11px 20px; font-size:13px; cursor:pointer; }
+  .menu-item:hover { background:#263445; }
+  .menu-item.active { background:#409EFF; color:#fff; }
+  .main { flex:1; display:flex; flex-direction:column; }
+  .topbar { display:flex; justify-content:space-between; align-items:center;
+            padding:12px 20px; border-bottom:1px solid #e4e7ed; }
+  .breadcrumb { font-size:13px; color:#606266; }
+  .breadcrumb b { color:#303133; }
+  .btn { display:inline-block; padding:7px 14px; border-radius:4px; font-size:13px;
+         cursor:pointer; border:1px solid #dcdfe6; background:#fff; color:#606266; }
+  .btn.primary { background:#409EFF; border-color:#409EFF; color:#fff; }
+  .btn.text { border:none; color:#409EFF; padding:4px 6px; }
+  .btn.text.warm { color:#e6a23c; font-weight:bold; }
+  .toolbar { padding:12px 20px; display:flex; gap:10px; align-items:center; }
+  .table { width:100%; font-size:13px; }
+  .table th { background:#fafafa; text-align:left; padding:10px 16px; color:#909399;
+              border-bottom:1px solid #ebeef5; font-weight:normal; }
+  .table td { padding:10px 16px; border-bottom:1px solid #ebeef5; color:#606266; }
+  .table tr:hover td { background:#f5f7fa; }
+  .file-link { color:#409EFF; cursor:pointer; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:3px; font-size:12px; }
+  .tag.ok    { background:#f0f9eb; color:#67c23a; }
+  .tag.lock  { background:#fdf6ec; color:#e6a23c; }
+  .tag.mine  { background:#ecf5ff; color:#409EFF; }
+  .hint { padding:10px 20px; color:#909399; font-size:12px; background:#fafcff; border-top:1px dashed #ebeef5; }
+  /* ===== 弹窗 ===== */
+  .mask { background:rgba(0,0,0,.35); padding:60px 0; }
+  .dialog { width:520px; margin:0 auto; background:#fff; border-radius:6px; }
+  .dialog-hd { padding:14px 20px; font-size:14px; font-weight:bold; color:#303133;
+               border-bottom:1px solid #ebeef5; display:flex; justify-content:space-between; }
+  .dialog-bd { padding:20px; }
+  .dropzone { border:2px dashed #c0c4cc; border-radius:6px; padding:34px; text-align:center;
+              color:#909399; font-size:13px; }
+  .dropzone b { color:#409EFF; }
+  .dialog-ft { padding:12px 20px; text-align:right; border-top:1px solid #ebeef5; }
+  /* ===== 全屏编辑器 ===== */
+  .editor-full { background:#fff; }
+  .ed-topbar { display:flex; align-items:center; gap:12px; padding:8px 16px;
+               border-bottom:1px solid #e4e7ed; background:#f8f9fb; }
+  .ed-fname { font-size:14px; font-weight:bold; color:#303133; }
+  .ed-lock { font-size:12px; color:#67c23a; background:#f0f9eb; padding:3px 10px; border-radius:10px; }
+  .ed-lock.warn { color:#e6a23c; background:#fdf6ec; }
+  .formula { display:flex; gap:0; border-bottom:1px solid #e4e7ed; font-size:12px; }
+  .cellref { padding:6px 12px; border-right:1px solid #e4e7ed; color:#606266; width:70px; }
+  .fx { padding:6px 12px; color:#606266; flex:1; }
+  .grid { display:grid; grid-template-columns:46px 150px 110px 150px 130px 110px; font-size:12px; }
+  .grid div { border-right:1px solid #e4e7ed; border-bottom:1px solid #e4e7ed;
+              padding:7px 8px; color:#606266; min-height:30px; }
+  .grid .head { background:#f5f7fa; color:#909399; text-align:center; padding:5px 2px; }
+  .grid .sel { outline:2px solid #409EFF; outline-offset:-2px; background:#ecf5ff; }
+  .grid .italic { color:#909399; font-style:italic; }
+  .sheet-tabs { display:flex; gap:2px; padding:6px 12px; border-top:1px solid #e4e7ed; font-size:12px; }
+  .sheet-tab { padding:4px 16px; border:1px solid #e4e7ed; border-radius:3px 3px 0 0; color:#606266; }
+  .sheet-tab.active { background:#fff; color:#409EFF; border-bottom-color:#fff; font-weight:bold; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ 原型1：项目管理页（入口） ═══════════ -->
+<div class="screen">
+  <div class="screen-title">原型 1：项目管理页（入口） <small>每个项目操作列新增「测试用例管理」按钮</small></div>
+  <div class="layout">
+    <div class="sider">
+      <div class="logo">AI 质量前置平台</div>
+      <div class="menu-item active">项目管理</div>
+      <div class="menu-item">需求文档</div>
+      <div class="menu-item">测试用例</div>
+      <div class="menu-item">知识库</div>
+      <div class="menu-item">系统设置</div>
+    </div>
+    <div class="main">
+      <div class="topbar">
+        <div class="breadcrumb"><b>项目管理</b></div>
+        <div><button class="btn primary">＋ 新建项目</button></div>
+      </div>
+      <table class="table">
+        <tr><th style="width:26%">项目名称</th><th>用例数</th><th>创建人</th><th>更新时间</th><th style="width:38%">操作</th></tr>
+        <tr>
+          <td><span class="file-link">DNK HOME 面板</span></td>
+          <td>160</td><td>张三</td><td>2026-10-24 11:20</td>
+          <td>
+            <button class="btn text">进入项目</button>
+            <button class="btn text warm">测试用例管理 ★</button>
+            <button class="btn text" style="color:#909399">编辑</button>
+            <button class="btn text" style="color:#f56c6c">删除</button>
+          </td>
+        </tr>
+        <tr>
+          <td><span class="file-link">智慧门禁系统</span></td>
+          <td>86</td><td>李四</td><td>2026-10-23 15:40</td>
+          <td>
+            <button class="btn text">进入项目</button>
+            <button class="btn text warm">测试用例管理 ★</button>
+            <button class="btn text" style="color:#909399">编辑</button>
+          </td>
+        </tr>
+        <tr>
+          <td><span class="file-link">App 移动端</span></td>
+          <td>54</td><td>王五</td><td>2026-10-22 09:15</td>
+          <td>
+            <button class="btn text">进入项目</button>
+            <button class="btn text warm">测试用例管理 ★</button>
+            <button class="btn text" style="color:#909399">编辑</button>
+          </td>
+        </tr>
+      </table>
+      <div class="hint">说明：点击「测试用例管理」直接跳转到该项目专属的用例文件管理页（原型 2），无需先进项目再找菜单。</div>
+    </div>
+  </div>
+</div>
+
+<div class="flow-arrow">↓ 点击「测试用例管理」跳转 ↓</div>
+
+<!-- ═══════════ 原型2：测试用例管理页（文件列表） ═══════════ -->
+<div class="screen">
+  <div class="screen-title">原型 2：测试用例管理页 <small>新跳转页面：仅展示用例文件名，支持上传/打开/下载/删除</small></div>
+  <div class="layout">
+    <div class="main">
+      <div class="topbar">
+        <div class="breadcrumb">
+          <span class="file-link">← 返回项目管理</span>&nbsp;&nbsp;|&nbsp;&nbsp;
+          测试用例管理 &nbsp;/&nbsp; <b>DNK HOME 面板</b>
+        </div>
+        <div><button class="btn primary">＋ 上传用例表</button></div>
+      </div>
+      <table class="table">
+        <tr><th style="width:34%">文件名</th><th>大小</th><th>上传人</th><th>更新时间</th><th>状态</th><th style="width:26%">操作</th></tr>
+        <tr>
+          <td><span class="file-link">📎 嵌入式测试用例-v3.xlsx</span></td>
+          <td>86 KB</td><td>张三</td><td>2026-10-24 10:32</td>
+          <td><span class="tag mine">我正在编辑</span></td>
+          <td><span class="file-link">打开编辑</span> · <span class="file-link">下载</span> · <span class="file-link" style="color:#f56c6c">删除</span></td>
+        </tr>
+        <tr>
+          <td><span class="file-link">📎 硬件对接用例汇总.xlsx</span></td>
+          <td>132 KB</td><td>李四</td><td>2026-10-23 16:08</td>
+          <td><span class="tag lock">🔒 李四正在编辑</span></td>
+          <td><span class="file-link">查看(只读)</span> · <span class="file-link">下载</span> · <span style="color:#c0c4cc">删除</span></td>
+        </tr>
+        <tr>
+          <td><span class="file-link">📎 App端回归用例.xlsx</span></td>
+          <td>54 KB</td><td>张三</td><td>2026-10-22 09:15</td>
+          <td><span class="tag ok">可编辑</span></td>
+          <td><span class="file-link">打开编辑</span> · <span class="file-link">下载</span> · <span class="file-link" style="color:#f56c6c">删除</span></td>
+        </tr>
+      </table>
+      <div class="hint">说明：点击文件名或「打开编辑」进入全屏编辑页（原型 3）；文件被占用时显示锁标签，其他人进入只读模式；删除仅上传人和管理员可见。</div>
+    </div>
+  </div>
+</div>
+
+<div class="flow-arrow">↓ 点击文件名「打开编辑」 ↓</div>
+
+<!-- ═══════════ 原型3：上传弹窗 ═══════════ -->
+<div class="screen">
+  <div class="screen-title">原型 3：上传弹窗 <small>支持 xlsx / xls / csv，可选"上传后直接进入编辑"</small></div>
+  <div class="mask">
+    <div class="dialog">
+      <div class="dialog-hd">上传用例表 <span style="color:#c0c4cc;font-weight:normal">✕</span></div>
+      <div class="dialog-bd">
+        <div class="dropzone">将文件拖到此处，或 <b>点击选择文件</b><br><span style="font-size:12px">支持 .xlsx / .xls / .csv，单个 ≤ 10MB</span></div>
+        <div style="margin-top:14px; font-size:13px; color:#303133">📎 嵌入式测试用例-v3.xlsx <span style="color:#909399">(86 KB)</span></div>
+        <label style="margin-top:14px; display:flex; gap:6px; align-items:center; font-size:13px; color:#606266">
+          <input type="checkbox" checked> 上传完成后直接进入全屏编辑
+        </label>
+      </div>
+      <div class="dialog-ft">
+        <button class="btn">取 消</button>&nbsp;&nbsp;
+        <button class="btn primary">开始上传</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 原型4：全屏编辑页（编辑者视角） ═══════════ -->
+<div class="screen">
+  <div class="screen-title">原型 4：全屏在线编辑 <small>编辑者视角：可编辑 + 保存；表格区为 Univer 组件渲染，此处为样式示意</small></div>
+  <div class="editor-full">
+    <div class="ed-topbar">
+      <button class="btn">← 返回列表</button>
+      <span class="ed-fname">嵌入式测试用例-v3.xlsx</span>
+      <span class="ed-lock">● 你正在编辑（其他人为只读）</span>
+      <span style="flex:1"></span>
+      <button class="btn">下载</button>
+      <button class="btn primary">保存</button>
+    </div>
+    <div class="formula"><div class="cellref">B3</div><div class="fx">fx &nbsp;| 验证登录失败5次后账号锁定15分钟</div></div>
+    <div class="grid">
+      <div class="head"></div><div class="head">A</div><div class="head">B</div><div class="head">C</div><div class="head">D</div><div class="head">E</div>
+      <div class="head">1</div><div>用例编号</div><div style="font-weight:bold">用例标题</div><div>前置条件</div><div>测试步骤</div><div>预期结果</div>
+      <div class="head">2</div><div>TC-001</div><div>正常登录</div><div>已注册账号</div><div>1.输入正确账密 2.点击登录</div><div>跳转首页</div>
+      <div class="head">3</div><div>TC-002</div><div class="sel">账号锁定策略</div><div>账号已注册</div><div class="italic">连续输错密码5次…</div><div>提示锁定15分钟</div>
+      <div class="head">4</div><div>TC-003</div><div>会话超时</div><div>已登录</div><div>闲置30分钟</div><div>跳转登录页</div>
+      <div class="head">5</div><div class="italic">…</div><div class="italic">…</div><div class="italic">…</div><div class="italic">…</div><div class="italic">…</div>
+    </div>
+    <div class="sheet-tabs"><span class="sheet-tab active">功能用例</span><span class="sheet-tab">性能用例</span><span class="sheet-tab">＋</span></div>
+  </div>
+</div>
+
+<!-- ═══════════ 原型5：只读者视角 ═══════════ -->
+<div class="screen">
+  <div class="screen-title">原型 5：全屏在线编辑 <small>只读者视角：顶部横幅提示 + 编辑区灰化、保存按钮禁用</small></div>
+  <div class="editor-full">
+    <div class="ed-topbar">
+      <button class="btn">← 返回列表</button>
+      <span class="ed-fname">硬件对接用例汇总.xlsx</span>
+      <span class="ed-lock warn">🔒 李四 正在编辑 · 你当前为只读 · 已锁定 12:36</span>
+      <span style="flex:1"></span>
+      <button class="btn">下载</button>
+      <button class="btn" style="opacity:.5; cursor:not-allowed">保存（只读）</button>
+    </div>
+    <div style="background:#fdf6ec; color:#e6a23c; font-size:13px; padding:8px 16px; border-bottom:1px solid #faecd8">
+      ⚠ 该文件正被李四编辑，你的修改不会被保存。锁定将于对方关闭后自动释放，届时刷新页面即可编辑。
+    </div>
+    <div class="grid" style="opacity:.75">
+      <div class="head"></div><div class="head">A</div><div class="head">B</div><div class="head">C</div><div class="head">D</div>
+      <div class="head">1</div><div>用例编号</div><div style="font-weight:bold">用例标题</div><div>操作步骤</div><div>预期结果</div>
+      <div class="head">2</div><div>HW-001</div><div>RS485 通信</div><div>发送读取指令</div><div>返回设备状态</div>
+      <div class="head">3</div><div>HW-002</div><div>断网重连</div><div>拔网线30s后恢复</div><div class="italic">自动重连成功…</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
