@@ -37,11 +37,16 @@ services:
         condition: service_healthy
     environment:
       - DATABASE_URL=mysql+pymysql://testgen:testgen_1234@mysql:3306/ai_testcase?charset=utf8mb4
+      # 容器默认 UTC，会让 datetime.now() 与 MySQL(Asia/Shanghai) 时间差 8 小时
+      - TZ=Asia/Shanghai
       # 视觉模型开关：需求文档内嵌原型图解析需要；须同时配置 VISION_API_KEY（backend/.env）
       - VISION_ENABLED=true
       - LOGIN_CAPTCHA_ENABLED=true
       - LOGIN_MAX_ATTEMPTS=5
       - LOGIN_LOCK_MINUTES=15
+    # .env 运行时注入：改 API Key 后 docker compose up -d 即生效，无需 rebuild
+    env_file:
+      - ./backend/.env
     volumes:
       - testgen-data:/app/data
       - testgen-uploads:/app/uploads

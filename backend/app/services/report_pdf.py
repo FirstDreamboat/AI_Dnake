@@ -10,6 +10,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 _FONT_REGISTERED = False
@@ -34,6 +35,12 @@ def _ensure_font() -> None:
             break
         except Exception:  # noqa: BLE001
             continue
+    if _FONT == "Helvetica":
+        try:
+            pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+            _FONT = "STSong-Light"
+        except Exception:
+            pass
     _FONT_REGISTERED = True
 
 
