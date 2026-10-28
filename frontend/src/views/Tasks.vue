@@ -43,6 +43,9 @@
         </el-table-column>
         <el-table-column label="操作" width="160">
           <template #default="{ row }">
+            <el-button v-if="['running', 'pending'].includes(row.status)" link type="warning" @click="viewProgress(row)">
+              查看进度
+            </el-button>
             <el-button v-if="canRetry(row)" link type="primary" @click="retry(row)">重试</el-button>
             <el-button link type="warning" @click="viewSummary(row)">查看结果</el-button>
           </template>
@@ -78,9 +81,16 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import { generateApi } from '@/api'
 
 const loading = ref(false)
+const router = useRouter()
+
+// 进行中/等待中的任务跳转生成页恢复实时进度
+const viewProgress = (row: any) => {
+  router.push({ path: '/generate', query: { task_id: row.id } })
+}
 const tasks = ref<any[]>([])
 const total = ref(0)
 const query = reactive({ page: 1, page_size: 10, status: '' })

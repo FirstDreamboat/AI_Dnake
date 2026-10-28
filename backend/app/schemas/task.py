@@ -45,6 +45,7 @@ class GenerateTaskOut(BaseModel):
     id: int
     task_no: str
     project_id: int
+    created_by: int | None = None
     document_id: int | None
     status: str
     progress: int

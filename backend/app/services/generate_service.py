@@ -514,6 +514,26 @@ def start_task(task_id: int, document_ids: list[int], options: dict, user_id: in
     )
     thread.start()
 
+def recover_stuck_tasks() -> int:
+    """服务启动时清理僵尸任务：进程重启会杀死后台线程，遗留的 running/pending
+    任务永远不会再推进，统一标记为 failed(悬挂)，用户可在任务列表一键重试。"""
+    db = SessionLocal()
+    try:
+        stuck = db.scalars(
+            select(GenerationTask).where(GenerationTask.status.in_(["running", "pending"]))
+        ).all()
+        now = datetime.now()
+        for t in stuck:
+            t.status = "failed"
+            t.progress = t.progress or 0
+            t.finished_at = now
+            t.error_msg = "服务重启导致任务中断（悬挂），可点击重试恢复"
+        if stuck:
+            db.commit()
+        return len(stuck)
+    finally:
+        db.close()
+
 
 def get_task(db: Session, task_id: int) -> GenerationTask:
     task = db.get(GenerationTask, task_id)

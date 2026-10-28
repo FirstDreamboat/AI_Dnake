@@ -42,6 +42,15 @@ async def lifespan(app: FastAPI):
         logger.exception("加载持久化 LLM 配置失败")
     finally:
         db.close()
+    # 进程重启会杀死生成任务后台线程，清理遗留的 running/pending 僵尸任务
+    try:
+        from app.services import generate_service as _gs
+
+        n = _gs.recover_stuck_tasks()
+        if n:
+            logger.warning("已清理 %d 个悬挂生成任务", n)
+    except Exception:
+        logger.exception("清理悬挂生成任务失败")
     yield
 
 

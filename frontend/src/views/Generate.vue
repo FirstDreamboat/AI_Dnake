@@ -103,17 +103,34 @@
     <!-- 任务进度 -->
     <el-card v-if="task" shadow="never">
       <template #header>
-        <span class="card-title">任务进度</span>
-        <el-tag :type="taskStatusMap[task.status]?.type" class="ml8">{{ taskStatusMap[task.status]?.label }}</el-tag>
+        <div class="progress-head">
+          <span>
+            <span class="card-title">任务进度</span>
+            <el-tag :type="taskStatusMap[task.status]?.type" class="ml8">{{ taskStatusMap[task.status]?.label }}</el-tag>
+            <el-tag v-if="!isOwner" type="info" class="ml8">只读（{{ ownerName }} 的任务）</el-tag>
+          </span>
+          <el-select
+            v-if="runningList.length > 1"
+            :model-value="task.id"
+            size="small"
+            style="width: 300px"
+            @change="switchRunningTask"
+          >
+            <el-option v-for="t in runningList" :key="t.id" :value="t.id"
+                       :label="`${t.task_no} · ${t.progress}% · ${taskStatusMap[t.status]?.label || t.status}`" />
+          </el-select>
+        </div>
       </template>
       <el-progress :percentage="task.progress" :status="task.status === 'failed' ? 'exception' : undefined" />
       <div class="stage-text">{{ stageText }}</div>
       <div v-if="task.status === 'success'" class="result-box">
         <el-result icon="success" title="生成完成" :sub-title="`共生成 ${task.total_case} 条测试用例`">
           <template #extra>
-            <el-button type="primary" @click="goCases">查看用例</el-button>
-            <el-button type="warning" plain :loading="checking" @click="handleSelfCheck">AI 自查</el-button>
-            <el-button @click="viewCoverage">查看覆盖率</el-button>
+            <template v-if="isOwner">
+              <el-button type="primary" @click="goCases">查看用例</el-button>
+              <el-button type="warning" plain :loading="checking" @click="handleSelfCheck">AI 自查</el-button>
+              <el-button @click="viewCoverage">查看覆盖率</el-button>
+            </template>
             <el-button @click="reviewVisible = true">查看评审</el-button>
           </template>
         </el-result>
@@ -205,13 +222,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { documentApi, generateApi, projectApi, testCaseApi } from '@/api'
+import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
 const projects = ref<any[]>([])
 const documents = ref<any[]>([])
@@ -237,6 +256,9 @@ const multiplierHints: Record<number, string> = {
 const creating = ref(false)
 const checking = ref(false)
 const task = ref<any>(null)
+// 多任务并行支持：我的进行中任务列表 + 当前轮询定时器
+const runningList = ref<any[]>([])
+let pollTimer: number | null = null
 const coverageVisible = ref(false)
 const coverage = ref<any>({})
 const reviewVisible = ref(false)
@@ -252,6 +274,15 @@ const typeMap: Record<string, string> = {
   function: '功能', boundary: '边界', exception: '异常', performance: '性能', security: '安全', implicit: '隐式',
 }
 
+// 任务归属：只有创建人（或 admin 在自己任务上）可执行后续操作，他人视角只读
+const isOwner = computed(() => {
+  if (!task.value) return false
+  return !task.value.created_by || task.value.created_by === userStore.userInfo?.id || !userStore.userInfo?.id
+})
+const ownerName = computed(() => {
+  const it = runningList.value.find((x) => x.id === task.value?.id)
+  return it?.creator_name || '其他用户'
+})
 const review = computed(() => task.value?.result_summary?.review || null)
 const businessFlows = computed(() => (task.value?.result_summary?.business_flows || []).map((f: any) => ({
   ...f,
@@ -356,6 +387,19 @@ if (form.project_id && form.document_ids.length) {
 const handleGenerate = async () => {
   if (!form.project_id) return ElMessage.warning('请选择项目')
   if (!form.document_ids.length) return ElMessage.warning('请选择需求文档')
+  // 多账号并行提示：已有进行中任务时再创建会共享 LLM 配额
+  const activeCount = runningList.value.filter((t) => ['pending', 'running'].includes(t.status)).length
+  if (activeCount > 0) {
+    try {
+      await ElMessageBox.confirm(
+        `你已有 ${activeCount} 个生成任务进行中。并行生成会共享 LLM 接口配额，可能拖慢彼此速度，确定继续？`,
+        '存在进行中的任务',
+        { type: 'warning', confirmButtonText: '继续生成', cancelButtonText: '先等完成' },
+      )
+    } catch {
+      return
+    }
+  }
   creating.value = true
   try {
     const res = await generateApi.create({
@@ -373,31 +417,103 @@ const handleGenerate = async () => {
     })
     task.value = { ...res, progress: 0, stage: 'pending', status: 'pending' }
     ElMessage.success(`任务已创建：${res.task_no}`)
+    // task_id 写入 URL：刷新/跳转后可自动恢复进度
+    router.replace({ query: { ...route.query, task_id: res.task_id } })
     startPolling(res.task_id)
+    refreshRunningList()
   } finally {
     creating.value = false
   }
 }
 
+const stopPolling = () => {
+  if (pollTimer !== null) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
 const startPolling = (taskId: number) => {
-  const timer = setInterval(async () => {
+  stopPolling()
+  pollTimer = window.setInterval(async () => {
     try {
       const t = await generateApi.detail(taskId)
       task.value = t
+      // 同步进行中任务列表里的进度
+      const it = runningList.value.find((x) => x.id === taskId)
+      if (it) {
+        it.progress = t.progress
+        it.status = t.status
+      }
       if (['success', 'failed', 'cancelled'].includes(t.status)) {
-        clearInterval(timer)
+        stopPolling()
+        refreshRunningList()
       }
     } catch (e: any) {
       // 临时错误（网络抖动/后端瞬时故障）不中断轮询，任务仍在后台执行；
       // 仅当任务不存在（404）或明确终止时才停止
       if (e?.response?.status === 404) {
-        clearInterval(timer)
+        stopPolling()
+        refreshRunningList()
       }
     }
   }, 3000)
 }
 
-const goCases = () => router.push(`/projects/${form.project_id}/cases`)
+onUnmounted(stopPolling)
+
+// 刷新"我的进行中任务"列表（普通用户后端只返回自己的；再按创建人过滤双保险）
+const refreshRunningList = async () => {
+  try {
+    const res: any = await generateApi.list({ status: 'running', page: 1, page_size: 50 })
+    const items = res?.list ?? res?.data?.list ?? res ?? []
+    runningList.value = items.filter((t: any) => t.created_by === userStore.userInfo?.id)
+  } catch {
+    runningList.value = []
+  }
+}
+
+// 恢复进度：URL 带 task_id 优先；否则自动接续我最近的进行中任务
+const restoreProgress = async () => {
+  const tid = Number(route.query.task_id)
+  if (tid) {
+    try {
+      const t = await generateApi.detail(tid)
+      task.value = t
+      if (['pending', 'running'].includes(t.status)) startPolling(tid)
+    } catch {
+      /* 任务不存在则忽略，走自动接续 */
+    }
+  }
+  await refreshRunningList()
+  if (!task.value || ['success', 'failed', 'cancelled'].includes(task.value.status)) {
+    const mine = runningList.value
+      .filter((t) => ['pending', 'running'].includes(t.status))
+      .sort((a, b) => b.id - a.id)
+    if (mine.length) {
+      const t = await generateApi.detail(mine[0].id)
+      task.value = t
+      startPolling(t.id)
+      router.replace({ query: { ...route.query, task_id: t.id } })
+    }
+  }
+}
+
+// 多任务切换：切换展示的任务并继续轮询
+const switchRunningTask = async (taskId: number) => {
+  try {
+    const t = await generateApi.detail(taskId)
+    task.value = t
+    if (['pending', 'running'].includes(t.status)) startPolling(taskId)
+    else stopPolling()
+    router.replace({ query: { ...route.query, task_id: taskId } })
+  } catch {
+    ElMessage.error('任务不存在或已被删除')
+    refreshRunningList()
+  }
+}
+
+const goCases = () => router.push(`/projects/${task.value?.project_id || form.project_id}/cases`)
 const viewCoverage = async () => {
   coverage.value = await generateApi.coverage(task.value.id)
   coverageVisible.value = true
@@ -425,12 +541,22 @@ const handleSelfCheck = async () => {
   }
 }
 
-onMounted(loadProjects)
+onMounted(() => {
+  loadProjects()
+  restoreProgress()
+})
 </script>
 
 <style scoped>
 .mb16 {
   margin-bottom: 16px;
+}
+
+.progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
 }
 
 .card-title {
