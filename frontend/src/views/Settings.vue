@@ -78,6 +78,58 @@
       </el-form>
     </el-card>
 
+    <!-- 云服务余额 -->
+    <el-card shadow="never" class="mb16">
+      <template #header>
+        <div class="card-header">
+          <span>云服务余额</span>
+          <el-button type="primary" size="small" :loading="balanceLoading" @click="loadBalance">刷新</el-button>
+        </div>
+      </template>
+      <template v-if="balance.deepseek || balance.siliconflow">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="DeepSeek（文本生成）">
+            <template v-if="balance.deepseek?.configured === false">
+              <el-tag type="info">未配置 Key</el-tag>
+            </template>
+            <template v-else-if="balance.deepseek?.error">
+              <el-tag type="danger">查询失败</el-tag>
+              <span class="bal-err">{{ balance.deepseek.error }}</span>
+            </template>
+            <template v-else>
+              <span :class="balClass(balance.deepseek)">
+                ¥{{ (balance.deepseek?.balance ?? 0).toFixed(2) }}
+              </span>
+              <el-tag v-if="balance.deepseek?.available === false" type="danger" class="ml8">已不可用</el-tag>
+              <el-tag v-else-if="lowBalance(balance.deepseek)" type="warning" class="ml8">余额偏低</el-tag>
+            </template>
+          </el-descriptions-item>
+          <el-descriptions-item label="硅基流动（向量化/视觉）">
+            <template v-if="balance.siliconflow?.configured === false">
+              <el-tag type="info">未配置 Key</el-tag>
+            </template>
+            <template v-else-if="balance.siliconflow?.query_unavailable">
+              <el-tag type="info">平台不支持查询</el-tag>
+              <span class="bal-err">请登录 siliconflow.cn 控制台查看余额</span>
+            </template>
+            <template v-else-if="balance.siliconflow?.error">
+              <el-tag type="danger">查询失败</el-tag>
+              <span class="bal-err">{{ balance.siliconflow.error }}</span>
+            </template>
+            <template v-else>
+              <span :class="balClass(balance.siliconflow)">
+                ¥{{ (balance.siliconflow?.balance ?? 0).toFixed(2) }}
+              </span>
+              <el-tag v-if="balance.siliconflow?.available === false" type="danger" class="ml8">已不可用</el-tag>
+              <el-tag v-else-if="lowBalance(balance.siliconflow)" type="warning" class="ml8">余额偏低</el-tag>
+            </template>
+          </el-descriptions-item>
+        </el-descriptions>
+        <div class="bal-tip">余额 &lt; ¥10 标黄提醒；生成/解析/向量化均消耗云服务额度，答辩演示前请确认余量充足。</div>
+      </template>
+      <el-skeleton v-else-if="balanceLoading" :rows="2" animated />
+    </el-card>
+
     <el-card shadow="never" class="mb16">
       <template #header>
         <div class="card-header">
@@ -255,6 +307,23 @@ const loadHealth = async () => {
   }
 }
 
+// ===== 云服务余额 =====
+const balance = ref<any>({})
+const balanceLoading = ref(false)
+const loadBalance = async () => {
+  balanceLoading.value = true
+  try {
+    const res: any = await systemApi.llmBalance()
+    balance.value = res?.data ?? res ?? {}
+  } catch {
+    /* 静默：卡片保持上次状态 */
+  } finally {
+    balanceLoading.value = false
+  }
+}
+const lowBalance = (d: any) => d && typeof d.balance === 'number' && d.balance < 10
+const balClass = (d: any) => ['bal-value', d && lowBalance(d) ? 'bal-low' : '']
+
 const loadLlmConfig = async () => {
   try {
     const cfg = await systemApi.llmConfig()
@@ -318,11 +387,29 @@ const saveBaseline = async () => {
 onMounted(() => {
   loadHealth()
   loadLlmConfig()
+  loadBalance()
   loadBaseline()
 })
 </script>
 
 <style scoped>
+.bal-value {
+  font-weight: bold;
+  font-size: 16px;
+}
+.bal-low {
+  color: #e6a23c;
+}
+.bal-err {
+  color: #909399;
+  font-size: 12px;
+  margin-left: 8px;
+}
+.bal-tip {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #909399;
+}
 .settings-page {
   padding: 4px;
 }

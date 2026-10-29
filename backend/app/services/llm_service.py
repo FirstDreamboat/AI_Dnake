@@ -69,6 +69,25 @@ class LLMService:
         return _runtime_llm_config["deepseek_model"] or settings.DEEPSEEK_MODEL
 
     # ---------- 文本生成 ----------
+    @staticmethod
+    def _friendly_api_error(provider: str, resp) -> RuntimeError:
+        """把云 API 的 4xx/5xx 转成用户能看懂的错误（余额不足/Key 无效/限流）"""
+        try:
+            body = resp.json()
+            msg = (body.get("error") or {}).get("message") or body.get("message") or ""
+        except Exception:  # noqa: BLE001
+            msg = ""
+        low = (msg or "").lower()
+        if resp.status_code in (402, 403) or "insufficient" in low or "balance" in low or "余额" in (msg or ""):
+            hint = f"—— {provider} 余额不足或账号受限，请前往平台充值/检查账号状态"
+        elif resp.status_code == 401:
+            hint = f"—— {provider} API Key 无效或未配置"
+        elif resp.status_code == 429:
+            hint = f"—— {provider} 请求限流，请稍后重试或降低并发"
+        else:
+            hint = ""
+        return RuntimeError(f"{provider} API 调用失败 [{resp.status_code}]{hint}: {msg or resp.reason_phrase}")
+
     def chat(
         self,
         prompt: str,
@@ -156,7 +175,8 @@ class LLMService:
             headers=headers,
             timeout=timeout,
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise LLMService._friendly_api_error("DeepSeek", resp)
         content = resp.json()["choices"][0]["message"]["content"]
         return (content or "").strip()
 
@@ -231,7 +251,8 @@ class LLMService:
             },
             timeout=timeout,
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise LLMService._friendly_api_error("硅基流动(视觉)", resp)
         content = resp.json()["choices"][0]["message"]["content"]
         return (content or "").strip()
 
@@ -319,7 +340,8 @@ class LLMService:
             },
             timeout=settings.EMBED_TIMEOUT,
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise LLMService._friendly_api_error("硅基流动(向量化)", resp)
         data = resp.json().get("data", [])
         # 按 index 排序，保证与输入顺序一致
         data = sorted(data, key=lambda d: d.get("index", 0))

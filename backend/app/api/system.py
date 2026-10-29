@@ -1,5 +1,6 @@
 """系统管理接口"""
 from fastapi import APIRouter, Depends
+import httpx
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -194,6 +195,73 @@ def get_agents(
             ]
         }
     )
+
+
+@router.get("/llm-balance")
+def get_llm_balance(
+    user: User = Depends(get_current_user),
+):
+    """云服务余额查询：DeepSeek(/user/balance) + 硅基流动(/v1/user/info)
+
+    用于演示前检查账户余量；未配置 Key 或接口异常时返回 available=False 与原因。
+    """
+    result: dict = {}
+
+    # DeepSeek
+    key = settings.DEEPSEEK_API_KEY
+    if not key:
+        result["deepseek"] = {"configured": False, "error": "未配置 DEEPSEEK_API_KEY"}
+    else:
+        try:
+            r = httpx.get(
+                "https://api.deepseek.com/user/balance",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=10,
+            )
+            if r.status_code == 200:
+                d = r.json()
+                info = (d.get("balance_infos") or [{}])[0]
+                result["deepseek"] = {
+                    "configured": True,
+                    "available": bool(d.get("is_available")),
+                    "currency": info.get("currency", "CNY"),
+                    "balance": float(info.get("total_balance") or 0),
+                }
+            else:
+                result["deepseek"] = {"configured": True, "available": False, "error": f"HTTP {r.status_code}"}
+        except Exception as e:  # noqa: BLE001
+            result["deepseek"] = {"configured": True, "available": False, "error": str(e)[:120]}
+
+    # 硅基流动（向量/视觉共用 Key）
+    key = settings.EMBED_API_KEY or settings.VISION_API_KEY
+    if not key:
+        result["siliconflow"] = {"configured": False, "error": "未配置 EMBED_API_KEY / VISION_API_KEY"}
+    else:
+        try:
+            base = settings.EMBED_API_BASE_URL.rstrip("/")
+            r = httpx.get(f"{base}/user/info", headers={"Authorization": f"Bearer {key}"}, timeout=10)
+            if r.status_code == 200:
+                d = (r.json() or {}).get("data") or {}
+                balance = d.get("remainBalance") or d.get("balance") or d.get("chargeBalance") or 0
+                result["siliconflow"] = {
+                    "configured": True,
+                    "available": d.get("status") in (None, "normal"),
+                    "currency": "CNY",
+                    "balance": float(balance or 0),
+                }
+            elif r.status_code == 410:
+                # 硅基流动已下线 /user/info 等余额查询接口，无替代端点
+                result["siliconflow"] = {
+                    "configured": True,
+                    "query_unavailable": True,
+                    "error": "平台已下线余额查询接口，请登录 siliconflow.cn 控制台查看",
+                }
+            else:
+                result["siliconflow"] = {"configured": True, "available": False, "error": f"HTTP {r.status_code}"}
+        except Exception as e:  # noqa: BLE001
+            result["siliconflow"] = {"configured": True, "available": False, "error": str(e)[:120]}
+
+    return ok(result)
 
 
 @router.get("/llm-config")

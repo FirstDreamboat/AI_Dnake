@@ -210,6 +210,7 @@ export const systemApi = {
   models: () => request.get('/system/models'),
   agents: () => request.get('/system/agents'),
   llmConfig: () => request.get('/system/llm-config'),
+  llmBalance: () => request.get('/system/llm-balance', { timeout: 20000 }),
   saveLlmConfig: (data: any) => request.put('/system/llm-config', data),
 }
 
