@@ -3,6 +3,13 @@
 backend/.env
 *.local
 
+# ===== 敏感/本地数据（账单、数据库导出、临时脚本，禁止提交） =====
+bills_*.csv
+_migrate/
+_git_audit*.bat
+_p?.py
+_analyze_bill.py
+
 # ===== Python =====
 __pycache__/
 *.py[cod]
