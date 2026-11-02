@@ -293,7 +293,8 @@ const stageText = computed(() => {
   if (!task.value) return ''
   const map: Record<string, string> = {
     pending: '等待调度...', requirement_parse: 'AI 解析需求...', test_point_extraction: 'AI 提取测试点...',
-    rag_retrieval: '检索知识库...', case_generation: 'AI 生成用例...', case_review: 'AI 评审用例...', complete: '完成',
+    rag_retrieval: '检索知识库...', case_generation: 'AI 生成用例...', quality_audit: '用例质量校验...',
+    case_review: 'AI 评审用例...', case_revision: 'AI 按评审意见修订用例...', complete: '完成',
   }
   return map[task.value.stage] || ''
 })

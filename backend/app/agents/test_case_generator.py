@@ -1,10 +1,12 @@
 """用例生成智能体: 结合测试点与 RAG 上下文生成结构化测试用例
 
 测试点分批生成（每批多个测试点），要求每个测试点覆盖正常/边界/异常场景。
-用例为嵌套结构（含步骤数组），必须使用 json mode；为避免小模型照抄示例占位符，
-prompt 不提供完整示例对象，仅给出字段说明。解析层兼容数组/字典映射/单对象多种结构。
+用例为嵌套结构（含步骤数组），必须使用 json mode；prompt 提供 2 条完整范例
+（few-shot，明确标注仅供格式示范），配合第 9 条"示例非事实来源"规则防照抄。
+解析层兼容数组/字典映射/单对象多种结构。
 """
 import logging
+from typing import Callable
 
 from app.agents.base import BaseAgent
 from app.agents.requirement_matching import best_match
@@ -60,6 +62,16 @@ TEST_CASE_GENERATE_PROMPT = """你是一名资深的嵌入式软件测试用例�
    - error_guessing(错误推测)：针对空值、特殊字符、超长输入、重复提交、中断恢复等易错点出用例
    - none：常规单一功能点的正向验证即可
    约束：所有取值与组合必须以【本批需求原文依据】为唯一事实来源；在档位允许的 ±1 条浮动内优先取该技术最具代表性的取值点，不得为凑齐技术路线而编造需求未支持的场景（如需求未给出长度范围时不得输出边界值用例）
+14. 极其重要——并发/兼容/恢复三类场景优先级提升（这是评审与人工复核最常发现的覆盖缺口，若测试点类型或描述涉及下列情况，必须产出对应用例，不得省略）：
+   - 并发/竞争：同一功能被快速连点/重复提交、多终端（App+设备+网页）同时操作同一数据、操作进行中收到新请求（如正在保存时再次点击保存）。步骤必须写明"连续快速点击 N 次"或"两个终端同时"等具体操作方式，预期写明系统的确定性表现（仅生效一次/提示进行中/最终状态一致）
+   - 兼容性：需求或测试点提到不同设备型号/系统版本/屏幕尺寸/分辨率/语言环境时，覆盖小屏设备、低版本系统、横竖屏切换等至少 1 条适配性用例；需求未提及型号时用"较低配置设备""小尺寸屏幕"等中性表达，严禁编造具体型号
+   - 恢复性：操作被中断（断网、杀进程、来电、断电重启、升级中断）后重新进入，验证数据不丢失/状态可恢复/可继续或安全回退，严禁出现卡死、重复扣减、状态永久不一致
+
+【输出范例】（仅示范格式与颗粒度，严禁照抄其中的场景、按钮、数值——真实内容一律以【本批需求原文依据】为准）
+[
+  {"title": "输入恰好 16 位密码注册成功", "module": "账号注册", "test_point": "密码长度边界校验", "preconditions": "已进入注册页面并填写有效邮箱，未点击提交", "steps": [{"step_no": 1, "action": "在密码输入框输入 16 位合法密码（含大小写字母、数字、符号）", "expected": "密码框正常显示 16 位字符"}, {"step_no": 2, "action": "点击注册提交按钮", "expected": "注册成功，页面跳转至首页"}], "expected_result": "注册成功并跳转首页，使用该账号可正常登录", "priority": "L2", "test_type": "边界测试"},
+  {"title": "保存设置时断网后重新联网", "module": "系统设置", "test_point": "设置保存中断恢复", "preconditions": "设备已联网并进入设置页，已修改任一设置项", "steps": [{"step_no": 1, "action": "断开设备网络", "expected": "页面出现网络异常提示"}, {"step_no": 2, "action": "恢复网络后重新进入设置页", "expected": "设置页正常加载，修改项保持修改后状态"}], "expected_result": "恢复网络后设置项为用户修改后的值，无数据丢失，无重复保存产生的异常数据", "priority": "L3", "test_type": "异常测试"}
+]
 
 【此前已生成用例】
 {already_produced}
@@ -220,12 +232,16 @@ class TestCaseGeneratorAgent(BaseAgent):
         priority_levels: list[str] | None = None,
         cases_per_point: int = DEFAULT_CASES_PER_POINT,
         requirements: list[dict] | None = None,
+        rag_retriever: "Callable[[list[dict]], str] | None" = None,
     ) -> list[dict]:
         """根据测试点生成测试用例，返回用例字典列表（分批生成后汇总去重）
 
         cases_per_point: 生成倍数（1~5），每个测试点期望生成的用例条数。
         requirements: 需求清单(6列原文)，用于给每批测试点生成"需求原文依据"，
             让用例设计严格锚定原文的按钮/toast/数值/流程，而不是靠脑补。
+        rag_retriever: 按批检索回调（入参为当前批测试点，返回参考上下文文本）。
+            提供时优先按批检索（每批用例参考与该批测试点直接相关的历史用例，
+            相关性远高于全任务单一查询），失败或为空时回退到全局 rag_context。
         """
         if not test_points:
             return []
@@ -249,6 +265,15 @@ class TestCaseGeneratorAgent(BaseAgent):
             display_batch = [
                 {k: v for k, v in tp.items() if not str(k).startswith("_")} for tp in batch
             ]
+            # 按批检索：本批测试点各自的描述拼成查询，参考用例与本批内容直接相关；
+            # 检索失败或为空时回退全局 rag_context（整份文档级查询）
+            batch_rag = ""
+            if rag_retriever is not None:
+                try:
+                    batch_rag = rag_retriever(batch) or ""
+                except Exception:
+                    logger.warning("按批 RAG 检索失败，本批回退全局参考上下文", exc_info=True)
+                    batch_rag = ""
             prompt = (
                 TEST_CASE_GENERATE_PROMPT.replace("{test_points}", str(display_batch))
                 .replace("{requirement_refs}", _build_requirement_refs(batch, requirements))
@@ -259,7 +284,7 @@ class TestCaseGeneratorAgent(BaseAgent):
                 .replace("{batch_max}", str(batch_max))
                 .replace("{priority_levels}", "/".join(priority_levels))
                 .replace("{priority_clause}", priority_clause)
-                .replace("{rag_context}", rag_context or "（无）")
+                .replace("{rag_context}", batch_rag or rag_context or "（无）")
             )
             cases = self._parse(prompt)
             # 批次内数量严重不足兜底：提高随机度重试一次，合并去重。
