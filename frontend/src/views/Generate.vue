@@ -167,6 +167,28 @@
           </el-tag>
         </div>
 
+        <!-- 评审闭环留痕：本轮是否触发修订、修订前后评分对比 -->
+        <el-alert
+          v-if="review.revised"
+          type="success"
+          :title="`评审闭环：${review.revision || '已按评审问题修订并复评'}`"
+          :description="review.first_review && review.first_review.overall_score !== undefined
+            ? `修订前评分 ${review.first_review.overall_score} 分 → 复评后 ${review.overall_score} 分`
+            : undefined"
+          :closable="false"
+          show-icon
+          class="revision-alert"
+        />
+        <el-alert
+          v-else-if="review.revision"
+          type="info"
+          title="评审闭环未触发修订"
+          :description="review.revision"
+          :closable="false"
+          show-icon
+          class="revision-alert"
+        />
+
         <el-tabs>
           <el-tab-pane label="问题清单">
             <el-table v-if="review.issues && review.issues.length" :data="review.issues" border size="small" max-height="280">
@@ -645,6 +667,11 @@ onMounted(() => {
 
 .auto-dedup-alert {
   margin: 14px 24px 4px;
+  text-align: left;
+}
+
+.revision-alert {
+  margin: 12px 0 4px;
   text-align: left;
 }
 
