@@ -40,7 +40,7 @@
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { computed } from 'vue'
-import { Aim, Odometer, Folder, MagicStick, Collection, Document, Setting, User, TrendCharts, Files, Memo } from '@element-plus/icons-vue'
+import { Aim, Odometer, Folder, MagicStick, Collection, Document, Setting, User, TrendCharts, Files, Memo, Tickets } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -56,6 +56,7 @@ const menus = [
   { path: '/projects', title: '项目管理', icon: Folder, roles: ['admin', 'manager', 'engineer', 'product', 'developer'] },
   { path: '/generate', title: 'AI 用例生成', icon: MagicStick, roles: ['admin', 'manager', 'engineer', 'product', 'developer'] },
   { path: '/req-review', title: '需求体检', icon: Aim, roles: ['admin', 'manager', 'engineer', 'product', 'developer'] },
+  { path: '/tasks', title: '任务历史', icon: Tickets, roles: ['admin', 'manager', 'engineer', 'product', 'developer'] },
   { path: '/knowledge', title: '知识库', icon: Collection, roles: ['admin', 'manager', 'engineer', 'product', 'developer'] },
   { path: '/scripts', title: '脚本管理', icon: Document, roles: ['admin', 'manager', 'engineer', 'developer'] },
   { path: '/script-templates', title: '脚本模板', icon: Files, roles: ['admin', 'manager'] },
