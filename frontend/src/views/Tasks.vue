@@ -41,10 +41,13 @@
             <span v-else class="muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160">
+        <el-table-column label="操作" width="200">
           <template #default="{ row }">
             <el-button v-if="['running', 'pending'].includes(row.status)" link type="warning" @click="viewProgress(row)">
               查看进度
+            </el-button>
+            <el-button v-if="row.status === 'success'" link type="success" @click="viewReview(row)">
+              查看评审
             </el-button>
             <el-button v-if="canRetry(row)" link type="primary" @click="retry(row)">重试</el-button>
             <el-button link type="warning" @click="viewSummary(row)">查看结果</el-button>
@@ -89,6 +92,11 @@ const router = useRouter()
 
 // 进行中/等待中的任务跳转生成页恢复实时进度
 const viewProgress = (row: any) => {
+  router.push({ path: '/generate', query: { task_id: row.id } })
+}
+
+// 已完成任务跳转生成页查看评审报告（复用生成页评审弹窗，含修订闭环留痕）
+const viewReview = (row: any) => {
   router.push({ path: '/generate', query: { task_id: row.id } })
 }
 const tasks = ref<any[]>([])
