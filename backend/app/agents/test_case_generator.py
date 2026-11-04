@@ -54,7 +54,7 @@ TEST_CASE_GENERATE_PROMPT = """你是一名资深的嵌入式软件测试用例�
 12. 本批内不同测试点之间同样适用第 11 条：若不同测试点最终都指向同一用户操作+同一验证预期，只为其代表测试点生成一条用例，不得重复生成
 13. 极其重要——按【设计技术】(technique) 决定"测哪些取值/哪些组合"：测试点清单中每个测试点带有 technique 字段，标明该点应采用的设计技术。为该测试点设计用例时必须体现该技术，否则只验证了单一取值，覆盖率不足：
    - equivalence(等价类划分)：分别覆盖有效等价类与无效等价类各一条用例（合法输入与非法输入）
-   - boundary(边界值分析)：至少覆盖取值区间的下界与上界两个端点（含上界值/下界值与越界值）
+   - boundary(边界值分析)：极其重要——凡需求原文给出长度/数量/次数/时长区间（如 8-16 位、1-5 个、5 次锁定），该测试点【必须】产出 4 条取值用例：下界值、上界值、越界-低于下界、越界-高于上界（此类点允许 4 条，不受 ±1 浮动限制）；步骤中必须写出对应长度的具体样例值（如原文 8-16 位时输入 7 位/8 位/16 位/17 位密码 Abc1234、Abc12345、Abc123456789012345、Abc1234567890123456），预期写明该取值被接受还是拒绝的确定表现；只写"输入边界长度密码"而不写具体值的用例视为不合规
    - decision_table(判定表)：按条件取值组合分别出用例，覆盖不同组合对应的分支，不得只覆盖一种组合
    - state_transition(状态迁移)：覆盖"当前状态→触发事件→新状态"的正常转换，以及至少一条非法/不可达转换
    - scenario(场景法)：按基本流、备选流、异常流分别串联成端到端用例
@@ -305,8 +305,9 @@ class TestCaseGeneratorAgent(BaseAgent):
                 all_cases.append(case)
             # 滚动记录本批已产出用例摘要，供后续批次回避同义冗余
             produced_summaries.extend(_summarize_generated(cases))
-        # 兜底裁剪：模型不遵守档位时，每个测试点最多保留 target+1 条，保证总量可预期
-        capped = self._cap_excess(all_cases, cap_per_point=target + 1)
+        # 兜底裁剪：模型不遵守档位时，每个测试点最多保留 target+1 条（boundary 类点 +1，
+        # 因边界技术要求下界/上界/双越界共 4 条），保证总量可预期
+        capped = self._cap_excess(all_cases, cap_per_point=target + 1, test_points=test_points)
         # 等级规范兜底：性能类不得低于 L3、L1 占比受控
         self._normalize_priorities(capped, test_points)
         return capped
@@ -329,13 +330,23 @@ class TestCaseGeneratorAgent(BaseAgent):
         _cap_l1_ratio(cases)
 
     @staticmethod
-    def _cap_excess(cases: list[dict], cap_per_point: int) -> list[dict]:
-        """按用例所属测试点分组，超出 cap 的用例直接丢弃（控制"生成太多"）"""
+    def _cap_excess(cases: list[dict], cap_per_point: int, test_points: list[dict] | None = None) -> list[dict]:
+        """按用例所属测试点分组，超出 cap 的用例直接丢弃（控制"生成太多"）
+
+        test_points 提供 technique 信息时，boundary 类测试点上限 +1
+        （边界技术强制要求下界/上界/越界-低/越界-高共 4 条取值用例）。
+        """
+        tech: dict[str, str] = {}
+        for tp in test_points or []:
+            name = str(tp.get("name") or "").strip()
+            if name:
+                tech[name] = str(tp.get("technique") or "")
         counts: dict[str, int] = {}
         kept: list[dict] = []
         for c in cases:
             key = str(c.get("test_point") or "").strip()
-            if counts.get(key, 0) >= cap_per_point:
+            cap = cap_per_point + (1 if tech.get(key, "") == "boundary" else 0)
+            if counts.get(key, 0) >= cap:
                 continue
             counts[key] = counts.get(key, 0) + 1
             kept.append(c)
@@ -384,15 +395,15 @@ class TestCaseGeneratorAgent(BaseAgent):
     def _normalize(self, result) -> list[dict]:
         """兼容模型返回的多种 JSON 结构，并规范化字段类型"""
         if isinstance(result, list):
-            return [self._clean_case(c) for c in result if isinstance(c, dict)]
+            return [self._clean_case(c) for c in result if isinstance(c, dict) and str(c.get("title") or "").strip()]
         if isinstance(result, dict):
             if isinstance(result.get("test_cases"), list):
-                return [self._clean_case(c) for c in result["test_cases"] if isinstance(c, dict)]
+                return [self._clean_case(c) for c in result["test_cases"] if isinstance(c, dict) and str(c.get("title") or "").strip()]
             # 兼容模型输出单个对象的情况
             if result.get("title"):
                 return [self._clean_case(result)]
             # 兼容 {标题: {用例}} / {用例1: {用例}} 字典映射结构（小模型 json mode 常见输出）
             items = [v for v in result.values() if isinstance(v, dict)]
             if items and any(v.get("title") or v.get("expected_result") for v in items):
-                return [self._clean_case(v) for v in items]
+                return [self._clean_case(v) for v in items if str(v.get("title") or "").strip()]
         return []

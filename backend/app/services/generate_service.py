@@ -418,6 +418,15 @@ def _run_workflow(task_id: int, document_ids: list[int], options: dict, user_id:
                         "conclusion": r.get("conclusion", ""),
                     }
                 )
+        # 评审闭环留痕透传（revised/revision/first_review 由工作流在修订后写入 result.review，
+        # 此前聚合时被剥掉，导致前端与任务历史看不到"是否修订、修订前后分数"）
+        for r in reviews:
+            if r.get("revised") or r.get("revision"):
+                review_summary["revised"] = r.get("revised")
+                review_summary["revision"] = r.get("revision")
+                if r.get("first_review"):
+                    review_summary["first_review"] = r.get("first_review")
+                break
 
         # 质量校验汇总：多文档任务把各文档的扫描结果合并，
         # 使"预期结果模糊率"成为任务级可观测指标，而非只散落在评审文本中
