@@ -32,6 +32,9 @@
           <el-option v-for="t in taskOptions" :key="t.task_id" :label="taskLabel(t)" :value="t.task_id" />
         </el-select>
         <el-button type="primary" @click="loadData(true)">查询</el-button>
+        <el-button type="success" plain @click="openCreate">
+          <el-icon style="margin-right: 4px"><Plus /></el-icon>新增用例
+        </el-button>
         <span v-if="selectedCount" class="selected-info">已选 {{ selectedCount }} 条</span>
         <el-button type="success" :disabled="!selectedCount" @click="handleBatchApprove">批量通过</el-button>
         <el-button type="warning" plain :disabled="!selectedCount" @click="handleBatchRegenerate">批量重生成</el-button>
@@ -295,6 +298,71 @@
       </template>
     </el-dialog>
 
+    <!-- 新增用例弹窗（人工录入，来源标记 manual） -->
+    <el-dialog v-model="createVisible" title="新增用例（人工录入）" width="640px">
+      <el-form :model="createForm" label-width="90px">
+        <el-form-item label="用例标题" required>
+          <el-input v-model="createForm.title" placeholder="简洁描述被测场景" />
+        </el-form-item>
+        <el-form-item label="模块">
+          <el-select
+            v-model="createForm.module"
+            placeholder="选择或输入模块"
+            filterable
+            allow-create
+            default-first-option
+            clearable
+            style="width: 100%"
+          >
+            <el-option v-for="m in moduleOptions" :key="m" :label="m" :value="m" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="用例等级">
+          <el-select v-model="createForm.priority" style="width: 140px">
+            <el-option v-for="p in ['L1', 'L2', 'L3', 'L4']" :key="p" :label="p" :value="p" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="测试类型">
+          <el-select v-model="createForm.test_type" style="width: 180px" filterable allow-create default-first-option>
+            <el-option v-for="t in ['功能测试', '边界测试', '异常测试', '性能测试', '安全测试', '兼容性测试']" :key="t" :label="t" :value="t" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="前置条件">
+          <el-input v-model="createForm.preconditions" type="textarea" :rows="2" />
+        </el-form-item>
+        <el-form-item label="测试步骤">
+          <el-table :data="createForm.steps" border size="small">
+            <el-table-column label="#" width="50">
+              <template #default="{ $index }">{{ $index + 1 }}</template>
+            </el-table-column>
+            <el-table-column label="操作">
+              <template #default="{ row }">
+                <el-input v-model="row.action" placeholder="操作步骤" />
+              </template>
+            </el-table-column>
+            <el-table-column label="预期">
+              <template #default="{ row }">
+                <el-input v-model="row.expected" placeholder="该步骤预期" />
+              </template>
+            </el-table-column>
+            <el-table-column width="60">
+              <template #default="{ $index }">
+                <el-button link type="danger" @click="createForm.steps.splice($index, 1)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-button class="mt8" size="small" @click="createForm.steps.push({ action: '', expected: '' })">+ 添加步骤</el-button>
+        </el-form-item>
+        <el-form-item label="预期结果" required>
+          <el-input v-model="createForm.expected_result" type="textarea" :rows="3" placeholder="必须可判定：写明验收对象与可对照的变化" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="saveCreate">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 生成脚本 -->
     <ScriptGenerateDialog ref="scriptDialogRef" :project-id="projectId" :case-ids="selectedIdsArr" :case-count="selectedCount" />
   </div>
@@ -304,7 +372,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
-import { ArrowDown } from '@element-plus/icons-vue'
+import { ArrowDown, Plus } from '@element-plus/icons-vue'
 import { testCaseApi } from '@/api'
 import ScriptGenerateDialog from '@/components/ScriptGenerateDialog.vue'
 
@@ -492,6 +560,56 @@ const confirmReject = async () => {
     ElMessage.error(e?.message || '驳回失败')
   } finally {
     rejecting.value = false
+  }
+}
+
+// ===== 新增用例（人工录入） =====
+const createVisible = ref(false)
+const creating = ref(false)
+const createForm = reactive({
+  title: '', module: '' as string | null | undefined, priority: 'L2',
+  test_type: '功能测试', preconditions: '', expected_result: '', steps: [] as any[],
+})
+
+const openCreate = () => {
+  Object.assign(createForm, {
+    title: '', module: filters.module || '', priority: 'L2',
+    test_type: '功能测试', preconditions: '', expected_result: '', steps: [{ action: '', expected: '' }],
+  })
+  createVisible.value = true
+}
+
+const saveCreate = async () => {
+  if (!createForm.title.trim()) {
+    ElMessage.warning('请输入用例标题')
+    return
+  }
+  if (!createForm.expected_result.trim()) {
+    ElMessage.warning('请输入预期结果')
+    return
+  }
+  creating.value = true
+  try {
+    await testCaseApi.create({
+      project_id: projectId,
+      title: createForm.title.trim(),
+      module: createForm.module || null,
+      priority: createForm.priority,
+      test_type: createForm.test_type || '功能测试',
+      preconditions: createForm.preconditions,
+      expected_result: createForm.expected_result.trim(),
+      steps: createForm.steps
+        .filter((s: any) => s.action?.trim())
+        .map((s: any, i: number) => ({ step_no: i + 1, action: s.action, expected: s.expected })),
+      source: 'manual',
+    })
+    ElMessage.success('用例已创建（来源：人工）')
+    createVisible.value = false
+    loadData()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '创建失败')
+  } finally {
+    creating.value = false
   }
 }
 
