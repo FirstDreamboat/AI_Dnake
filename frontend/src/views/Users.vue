@@ -290,7 +290,11 @@ const handleSave = async () => {
   saving.value = true
   try {
     const payload = {
-      real_name: form.real_name, email: form.email, phone: form.phone, role: form.role,
+      // 空字符串转 null：后端 EmailStr 可选字段在 None 时不校验，空串会误触发邮箱格式校验
+      real_name: form.real_name || null,
+      email: form.email ? form.email.trim() : null,
+      phone: form.phone || null,
+      role: form.role,
       permissions: form.role === 'admin' ? undefined : form.permissions,
     }
     if (editing.value) {
